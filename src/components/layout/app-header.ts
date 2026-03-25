@@ -1,6 +1,6 @@
 /**
  * WardFlow App Header
- * Cabeçalho da aplicação
+ * Cabeçalho da aplicação com menu e usuário
  */
 
 import { LitElement, css, html } from 'lit';
@@ -9,8 +9,6 @@ import { customElement, property } from 'lit/decorators.js';
 @customElement('app-header')
 export class AppHeader extends LitElement {
   @property({ type: String }) override title = 'WardFlow';
-  @property({ type: Boolean }) showBack = false;
-  @property({ type: Boolean }) showMenu = false;
 
   static override styles = css`
     :host {
@@ -73,46 +71,38 @@ export class AppHeader extends LitElement {
     }
   `;
 
-  private handleBack() {
-    this.dispatchEvent(new CustomEvent('back', { bubbles: true, composed: true }));
+  private handleMenu() {
+    this.dispatchEvent(new CustomEvent('menu-click', { bubbles: true, composed: true }));
   }
 
-  private handleMenu() {
-    this.dispatchEvent(new CustomEvent('menu', { bubbles: true, composed: true }));
+  private handleUser() {
+    this.dispatchEvent(new CustomEvent('user-click', { bubbles: true, composed: true }));
   }
 
   override render() {
     return html`
       <header class="header">
         <div class="header-left">
-          ${this.showBack
-            ? html`
-                <button class="icon-btn" @click=${this.handleBack} aria-label="Voltar">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-                  </svg>
-                </button>
-              `
-            : null}
+          <button class="icon-btn" @click=${this.handleMenu} aria-label="Menu">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
         </div>
 
         <h1 class="header-title">${this.title}</h1>
 
         <div class="header-right">
-          ${this.showMenu
-            ? html`
-                <button class="icon-btn" @click=${this.handleMenu} aria-label="Menu">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
-                    />
-                  </svg>
-                </button>
-              `
-            : null}
+          <button class="icon-btn" @click=${this.handleUser} aria-label="Usuário">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+              />
+            </svg>
+          </button>
         </div>
       </header>
     `;

@@ -25,12 +25,9 @@ let currentMatch: RouteMatch | null = null;
  * Configuração de rotas
  */
 export const routes: Route[] = [
-  { path: '/', component: 'landing-view' },
-  { path: '/login', component: 'login-view' },
+  { path: '/', component: 'dashboard-view' }, // Redireciona para dashboard
   { path: '/dashboard', component: 'dashboard-view' },
   { path: '/nova-nota', component: 'new-note-view' },
-  { path: '/exportar', component: 'export-message-view' },
-  { path: '/configuracoes', component: 'settings-view' },
 ];
 
 /**
@@ -91,8 +88,8 @@ async function handleRouteChange(): Promise<void> {
   const match = matchRoute(path);
 
   if (!match) {
-    // Rota não encontrada - redireciona para landing
-    navigate('/', true);
+    // Rota não encontrada - redireciona para dashboard
+    navigate('/dashboard', true);
     return;
   }
 
