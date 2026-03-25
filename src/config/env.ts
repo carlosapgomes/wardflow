@@ -1,18 +1,17 @@
 /**
  * WardFlow Environment Configuration
  * Configurações de ambiente e Firebase
- *
- * IMPORTANTE: Substitua os placeholders pelos valores reais do seu projeto Firebase
  */
 
 export const config = {
   firebase: {
-    apiKey: 'FIREBASE_API_KEY_PLACEHOLDER',
-    authDomain: 'FIREBASE_AUTH_DOMAIN_PLACEHOLDER',
-    projectId: 'FIREBASE_PROJECT_ID_PLACEHOLDER',
-    storageBucket: 'FIREBASE_STORAGE_BUCKET_PLACEHOLDER',
-    messagingSenderId: 'FIREBASE_MESSAGING_SENDER_ID_PLACEHOLDER',
-    appId: 'FIREBASE_APP_ID_PLACEHOLDER',
+    apiKey: 'AIzaSyA9ck7Y8FJLqELw6UR1jcmEF7gBF_d6cQs',
+    authDomain: 'wardflow-app.firebaseapp.com',
+    projectId: 'wardflow-app',
+    storageBucket: 'wardflow-app.firebasestorage.app',
+    messagingSenderId: '470246924092',
+    appId: '1:470246924092:web:b1b25df15b77a40ee64839',
+    measurementId: 'G-3F0QSRQ7LF',
   },
   app: {
     name: 'WardFlow',
@@ -26,9 +25,5 @@ export const config = {
  */
 export function isFirebaseConfigured(): boolean {
   const { firebase } = config;
-  return (
-    firebase.apiKey !== 'FIREBASE_API_KEY_PLACEHOLDER' &&
-    firebase.authDomain !== 'FIREBASE_AUTH_DOMAIN_PLACEHOLDER' &&
-    firebase.projectId !== 'FIREBASE_PROJECT_ID_PLACEHOLDER'
-  );
+  return Boolean(firebase.apiKey && firebase.projectId);
 }
