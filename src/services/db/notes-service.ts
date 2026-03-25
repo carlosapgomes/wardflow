@@ -33,6 +33,22 @@ export async function saveNote(input: CreateNoteInput): Promise<Note> {
 }
 
 /**
+ * Busca todas as notas do usuário local, não expiradas
+ * Ordenadas por createdAt descendente (mais recentes primeiro)
+ */
+export async function getAllNotes(): Promise<Note[]> {
+  const now = new Date();
+  const notes = await db.notes
+    .where('userId')
+    .equals(LOCAL_USER_ID)
+    .filter((note) => note.expiresAt > now)
+    .reverse()
+    .sortBy('createdAt');
+
+  return notes;
+}
+
+/**
  * Valida se os campos obrigatórios estão preenchidos
  */
 export function validateNoteInput(input: CreateNoteInput): boolean {
