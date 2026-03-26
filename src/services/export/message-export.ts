@@ -1,11 +1,32 @@
 /**
  * WardFlow Message Export Service
  * Serviço de exportação de notas para formato de mensagem
- *
- * TODO: Implementar exportação completa na próxima fase
  */
 
 import type { Note } from '@/models/note';
+
+/** Estrutura de wards agrupadas */
+export interface WardGroupData {
+  ward: string;
+  notes: Note[];
+}
+
+/** Escopo de exportação por data */
+export interface DateScope {
+  type: 'date';
+  date: string;
+  wards: WardGroupData[];
+}
+
+/** Escopo de exportação por ala */
+export interface WardScope {
+  type: 'ward';
+  ward: string;
+  notes: Note[];
+}
+
+/** Escopo de exportação */
+export type ExportScope = DateScope | WardScope;
 
 export interface ExportOptions {
   format: 'text' | 'markdown' | 'json';
@@ -18,6 +39,73 @@ export const DEFAULT_EXPORT_OPTIONS: ExportOptions = {
   includeReference: true,
   groupBy: 'date',
 };
+
+/**
+ * Gera mensagem formatada a partir de um escopo
+ *
+ * Formato para data:
+ * *Pendências*
+ *
+ * *Ward*
+ * - LEITO | nota
+ * - LEITO (ref) | nota
+ *
+ * Formato para ward:
+ * *Ward*
+ * - LEITO | nota
+ */
+export function generateMessage(scope: ExportScope): string {
+  if (scope.type === 'date') {
+    return generateDateMessage(scope);
+  }
+  return generateWardMessage(scope);
+}
+
+/**
+ * Gera mensagem para escopo de data
+ */
+function generateDateMessage(scope: DateScope): string {
+  const lines: string[] = [];
+
+  lines.push('*Pendências*');
+  lines.push('');
+
+  for (const wardGroup of scope.wards) {
+    lines.push(`*${wardGroup.ward}*`);
+    for (const note of wardGroup.notes) {
+      lines.push(formatNoteLine(note));
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n').trim();
+}
+
+/**
+ * Gera mensagem para escopo de ala
+ */
+function generateWardMessage(scope: WardScope): string {
+  const lines: string[] = [];
+
+  lines.push(`*${scope.ward}*`);
+  lines.push('');
+
+  for (const note of scope.notes) {
+    lines.push(formatNoteLine(note));
+  }
+
+  return lines.join('\n').trim();
+}
+
+/**
+ * Formata uma linha de nota no formato: - LEITO | nota
+ * Inclui referência se existir: - LEITO (ref) | nota
+ */
+function formatNoteLine(note: Note): string {
+  const bed = note.bed;
+  const ref = note.reference ? ` (${note.reference})` : '';
+  return `- ${bed}${ref} | ${note.note}`;
+}
 
 /**
  * Exporta notas para formato de texto

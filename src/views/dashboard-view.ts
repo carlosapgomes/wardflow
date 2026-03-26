@@ -8,6 +8,7 @@ import { customElement, state } from 'lit/decorators.js';
 import { navigate } from '@/router/router';
 import { getAllNotes } from '@/services/db/notes-service';
 import { groupNotesByDateAndWard } from '@/utils/group-notes-by-date-and-ward';
+import { generateMessage, copyToClipboard, type ExportScope } from '@/services/export/message-export';
 import type { Note } from '@/models/note';
 import type { WardGroupData } from '@/components/groups/date-group';
 import '../components/base/fab-button';
@@ -34,6 +35,8 @@ export class DashboardView extends LitElement {
   @state() private isActionSheetOpen = false;
   @state() private selectedScope: SelectedScope = null;
   @state() private selectedTitle = '';
+  @state() private showToast = false;
+  @state() private toastMessage = '';
 
   static override styles = css`
     :host {
@@ -84,6 +87,26 @@ export class DashboardView extends LitElement {
       color: var(--color-muted);
       font-size: var(--font-md);
     }
+
+    .toast {
+      position: fixed;
+      bottom: calc(80px + var(--safe-area-inset-bottom));
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: var(--color-text);
+      color: var(--color-bg);
+      padding: var(--space-3) var(--space-5);
+      border-radius: var(--radius-full);
+      font-size: var(--font-sm);
+      font-weight: var(--font-weight-medium);
+      z-index: var(--z-toast);
+      opacity: 0;
+      transition: opacity var(--transition-normal);
+    }
+
+    .toast.visible {
+      opacity: 1;
+    }
   `;
 
   override connectedCallback(): void {
@@ -127,12 +150,42 @@ export class DashboardView extends LitElement {
     this.isActionSheetOpen = true;
   };
 
-  private handleActionSelected = (e: CustomEvent<{ actionId: string }>) => {
+  private handleActionSelected = async (e: CustomEvent<{ actionId: string }>) => {
     const { actionId } = e.detail;
-    // Placeholder: armazena a ação selecionada (sem executar)
-    console.log('Ação selecionada:', actionId, 'Escopo:', this.selectedScope);
+
+    if (actionId === 'copy' && this.selectedScope) {
+      await this.handleCopyMessage();
+    } else {
+      // Placeholder para outras ações
+      console.log('Ação selecionada:', actionId, 'Escopo:', this.selectedScope);
+    }
+
     this.isActionSheetOpen = false;
   };
+
+  private async handleCopyMessage(): Promise<void> {
+    if (!this.selectedScope) return;
+
+    const scope: ExportScope = this.selectedScope.type === 'date'
+      ? { type: 'date', date: this.selectedScope.date, wards: this.selectedScope.wards }
+      : { type: 'ward', ward: this.selectedScope.ward, notes: this.selectedScope.notes };
+
+    const message = generateMessage(scope);
+    const success = await copyToClipboard(message);
+
+    if (success) {
+      this.showTemporaryToast('Mensagem copiada');
+    }
+  };
+
+  private showTemporaryToast(message: string): void {
+    this.toastMessage = message;
+    this.showToast = true;
+
+    setTimeout(() => {
+      this.showToast = false;
+    }, 2000);
+  }
 
   private handleSheetClosed = () => {
     this.isActionSheetOpen = false;
@@ -166,6 +219,14 @@ export class DashboardView extends LitElement {
     `;
   }
 
+  private renderToast() {
+    return html`
+      <div class="toast ${this.showToast ? 'visible' : ''}">
+        ${this.toastMessage}
+      </div>
+    `;
+  }
+
   override render() {
     return html`
       <app-header title="WardFlow"></app-header>
@@ -187,6 +248,8 @@ export class DashboardView extends LitElement {
         @action-selected=${this.handleActionSelected}
         @sheet-closed=${this.handleSheetClosed}
       ></action-sheet>
+
+      ${this.renderToast()}
     `;
   }
 }

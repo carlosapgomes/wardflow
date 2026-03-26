@@ -5,19 +5,13 @@
 
 import { LitElement, css, html } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
+import type { Note } from '@/models/note';
 import '../groups/ward-group';
 
 /** Estrutura de wards agrupadas (mesma do utils/group-notes-by-date-and-ward) */
 export interface WardGroupData {
   ward: string;
-  notes: {
-    id: string;
-    ward: string;
-    bed: string;
-    note: string;
-    reference?: string;
-    createdAt: Date;
-  }[];
+  notes: Note[];
 }
 
 @customElement('date-group')
