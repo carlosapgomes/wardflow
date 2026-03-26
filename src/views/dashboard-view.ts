@@ -229,9 +229,8 @@ export class DashboardView extends LitElement {
       await this.handleCopyMessage();
     } else if (actionId === 'preview' && this.selectedScope) {
       this.handlePreviewMessage();
-    } else {
-      // Placeholder para outras ações
-      console.log('Ação selecionada:', actionId, 'Escopo:', this.selectedScope);
+    } else if (actionId === 'share' && this.selectedScope) {
+      await this.handleShareMessage();
     }
 
     this.isActionSheetOpen = false;
@@ -256,6 +255,31 @@ export class DashboardView extends LitElement {
       this.showTemporaryToast('Mensagem copiada');
     }
   }
+
+  private handleShareMessage = async (): Promise<void> => {
+    const scope = this.buildExportScope();
+    if (!scope) return;
+
+    const message = generateMessage(scope);
+
+    // Feature detection: verificar se navigator.share está disponível
+    const canShare = 'share' in navigator && typeof navigator.share === 'function';
+
+    if (canShare) {
+      try {
+        await navigator.share({ text: message });
+        return; // Sucesso - sem toast
+      } catch {
+        // Usuário cancelou ou erro - fallback para copiar
+      }
+    }
+
+    // Fallback: copiar para clipboard
+    const success = await copyToClipboard(message);
+    if (success) {
+      this.showTemporaryToast('Mensagem copiada');
+    }
+  };
 
   private handlePreviewMessage(): void {
     const scope = this.buildExportScope();
