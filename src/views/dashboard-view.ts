@@ -37,6 +37,8 @@ export class DashboardView extends LitElement {
   @state() private selectedTitle = '';
   @state() private showToast = false;
   @state() private toastMessage = '';
+  @state() private isPreviewOpen = false;
+  @state() private previewMessage = '';
 
   static override styles = css`
     :host {
@@ -88,6 +90,76 @@ export class DashboardView extends LitElement {
       font-size: var(--font-md);
     }
 
+    /* Preview styles */
+    .preview-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .preview-header {
+      padding: var(--space-4);
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    .preview-title {
+      font-size: var(--font-lg);
+      font-weight: var(--font-weight-semibold);
+      color: var(--color-text);
+    }
+
+    .preview-content {
+      flex: 1;
+      padding: var(--space-4);
+      overflow-y: auto;
+    }
+
+    .preview-message {
+      white-space: pre-wrap;
+      font-family: var(--font-family);
+      font-size: var(--font-md);
+      line-height: var(--line-height-relaxed);
+      color: var(--color-text);
+    }
+
+    .preview-actions {
+      display: flex;
+      gap: var(--space-3);
+      padding: var(--space-4);
+      padding-bottom: calc(var(--space-4) + var(--safe-area-inset-bottom));
+      border-top: 1px solid var(--color-border);
+    }
+
+    .btn {
+      flex: 1;
+      padding: var(--space-4);
+      font-size: var(--font-md);
+      font-weight: var(--font-weight-semibold);
+      border-radius: var(--radius-md);
+      border: none;
+      cursor: pointer;
+      transition: background-color var(--transition-fast);
+    }
+
+    .btn-secondary {
+      background-color: var(--color-surface);
+      color: var(--color-text);
+    }
+
+    .btn-secondary:hover {
+      background-color: var(--color-border);
+    }
+
+    .btn-primary {
+      background-color: var(--color-primary);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background-color: var(--color-primary-pressed);
+    }
+
+    /* Toast styles */
     .toast {
       position: fixed;
       bottom: calc(80px + var(--safe-area-inset-bottom));
@@ -155,6 +227,8 @@ export class DashboardView extends LitElement {
 
     if (actionId === 'copy' && this.selectedScope) {
       await this.handleCopyMessage();
+    } else if (actionId === 'preview' && this.selectedScope) {
+      this.handlePreviewMessage();
     } else {
       // Placeholder para outras ações
       console.log('Ação selecionada:', actionId, 'Escopo:', this.selectedScope);
@@ -163,12 +237,17 @@ export class DashboardView extends LitElement {
     this.isActionSheetOpen = false;
   };
 
-  private async handleCopyMessage(): Promise<void> {
-    if (!this.selectedScope) return;
+  private buildExportScope(): ExportScope | null {
+    if (!this.selectedScope) return null;
 
-    const scope: ExportScope = this.selectedScope.type === 'date'
+    return this.selectedScope.type === 'date'
       ? { type: 'date', date: this.selectedScope.date, wards: this.selectedScope.wards }
       : { type: 'ward', ward: this.selectedScope.ward, notes: this.selectedScope.notes };
+  }
+
+  private async handleCopyMessage(): Promise<void> {
+    const scope = this.buildExportScope();
+    if (!scope) return;
 
     const message = generateMessage(scope);
     const success = await copyToClipboard(message);
@@ -176,6 +255,27 @@ export class DashboardView extends LitElement {
     if (success) {
       this.showTemporaryToast('Mensagem copiada');
     }
+  }
+
+  private handlePreviewMessage(): void {
+    const scope = this.buildExportScope();
+    if (!scope) return;
+
+    this.previewMessage = generateMessage(scope);
+    this.isPreviewOpen = true;
+  }
+
+  private handlePreviewCopy = async (): Promise<void> => {
+    const success = await copyToClipboard(this.previewMessage);
+
+    if (success) {
+      this.showTemporaryToast('Mensagem copiada');
+    }
+  };
+
+  private handlePreviewClose = (): void => {
+    this.isPreviewOpen = false;
+    this.previewMessage = '';
   };
 
   private showTemporaryToast(message: string): void {
@@ -219,15 +319,7 @@ export class DashboardView extends LitElement {
     `;
   }
 
-  private renderToast() {
-    return html`
-      <div class="toast ${this.showToast ? 'visible' : ''}">
-        ${this.toastMessage}
-      </div>
-    `;
-  }
-
-  override render() {
+  private renderDashboardContent() {
     return html`
       <app-header title="WardFlow"></app-header>
 
@@ -240,6 +332,45 @@ export class DashboardView extends LitElement {
       </div>
 
       <fab-button icon="plus" label="Nova nota" @fab-click=${this.handleFabClick}></fab-button>
+    `;
+  }
+
+  private renderPreview() {
+    return html`
+      <app-header title="WardFlow"></app-header>
+
+      <div class="preview-container">
+        <div class="preview-header">
+          <h2 class="preview-title">Pré-visualizar mensagem</h2>
+        </div>
+
+        <div class="preview-content">
+          <pre class="preview-message">${this.previewMessage}</pre>
+        </div>
+
+        <div class="preview-actions">
+          <button class="btn btn-secondary" @click=${this.handlePreviewClose}>
+            Fechar
+          </button>
+          <button class="btn btn-primary" @click=${this.handlePreviewCopy}>
+            Copiar
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  private renderToast() {
+    return html`
+      <div class="toast ${this.showToast ? 'visible' : ''}">
+        ${this.toastMessage}
+      </div>
+    `;
+  }
+
+  override render() {
+    return html`
+      ${this.isPreviewOpen ? this.renderPreview() : this.renderDashboardContent()}
 
       <action-sheet
         .visible=${this.isActionSheetOpen}
