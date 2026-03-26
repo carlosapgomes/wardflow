@@ -9,13 +9,31 @@ import { navigate } from '@/router/router';
 import { getAllNotes } from '@/services/db/notes-service';
 import { groupNotesByDateAndWard } from '@/utils/group-notes-by-date-and-ward';
 import type { Note } from '@/models/note';
+import type { WardGroupData } from '@/components/groups/date-group';
 import '../components/base/fab-button';
 import '../components/groups/date-group';
+import '../components/feedback/action-sheet';
+
+/** Ações disponíveis no action sheet */
+const ACTIONS = [
+  { id: 'preview', label: 'Pré-visualizar' },
+  { id: 'copy', label: 'Copiar mensagem' },
+  { id: 'share', label: 'Compartilhar' },
+];
+
+/** Tipo de escopo selecionado */
+type SelectedScope =
+  | { type: 'date'; date: string; wards: WardGroupData[] }
+  | { type: 'ward'; ward: string; notes: Note[] }
+  | null;
 
 @customElement('dashboard-view')
 export class DashboardView extends LitElement {
   @state() private notes: Note[] = [];
   @state() private isLoading = true;
+  @state() private isActionSheetOpen = false;
+  @state() private selectedScope: SelectedScope = null;
+  @state() private selectedTitle = '';
 
   static override styles = css`
     :host {
@@ -89,6 +107,37 @@ export class DashboardView extends LitElement {
     navigate('/nova-nota');
   };
 
+  private handleDateAction = (e: CustomEvent<{
+    date: string;
+    wards: WardGroupData[];
+    scopeType: 'date';
+  }>) => {
+    this.selectedScope = { type: 'date', date: e.detail.date, wards: e.detail.wards };
+    this.selectedTitle = e.detail.date;
+    this.isActionSheetOpen = true;
+  };
+
+  private handleWardAction = (e: CustomEvent<{
+    ward: string;
+    notes: Note[];
+    scopeType: 'ward';
+  }>) => {
+    this.selectedScope = { type: 'ward', ward: e.detail.ward, notes: e.detail.notes };
+    this.selectedTitle = e.detail.ward;
+    this.isActionSheetOpen = true;
+  };
+
+  private handleActionSelected = (e: CustomEvent<{ actionId: string }>) => {
+    const { actionId } = e.detail;
+    // Placeholder: armazena a ação selecionada (sem executar)
+    console.log('Ação selecionada:', actionId, 'Escopo:', this.selectedScope);
+    this.isActionSheetOpen = false;
+  };
+
+  private handleSheetClosed = () => {
+    this.isActionSheetOpen = false;
+  };
+
   private renderEmptyState() {
     return html`
       <div class="empty-state">
@@ -104,7 +153,14 @@ export class DashboardView extends LitElement {
     return html`
       <div class="notes-list">
         ${groupedNotes.map(
-          (group) => html`<date-group .date=${group.date} .wards=${group.wards}></date-group>`
+          (group) => html`
+            <date-group
+              .date=${group.date}
+              .wards=${group.wards}
+              @date-action=${this.handleDateAction}
+              @ward-action=${this.handleWardAction}
+            ></date-group>
+          `
         )}
       </div>
     `;
@@ -123,6 +179,14 @@ export class DashboardView extends LitElement {
       </div>
 
       <fab-button icon="plus" label="Nova nota" @fab-click=${this.handleFabClick}></fab-button>
+
+      <action-sheet
+        .visible=${this.isActionSheetOpen}
+        .title=${this.selectedTitle}
+        .actions=${ACTIONS}
+        @action-selected=${this.handleActionSelected}
+        @sheet-closed=${this.handleSheetClosed}
+      ></action-sheet>
     `;
   }
 }
