@@ -5,12 +5,25 @@
 
 import { LitElement, css, html } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
-import type { Note } from '@/models/note';
+import '../groups/ward-group';
+
+/** Estrutura de wards agrupadas (mesma do utils/group-notes-by-date-and-ward) */
+export interface WardGroupData {
+  ward: string;
+  notes: {
+    id: string;
+    ward: string;
+    bed: string;
+    note: string;
+    reference?: string;
+    createdAt: Date;
+  }[];
+}
 
 @customElement('date-group')
 export class DateGroup extends LitElement {
   @property({ type: String }) date = '';
-  @property({ type: Array }) notes: Note[] = [];
+  @property({ type: Array }) wards: WardGroupData[] = [];
 
   static override styles = css`
     :host {
@@ -19,50 +32,23 @@ export class DateGroup extends LitElement {
     }
 
     .date-header {
-      display: flex;
-      align-items: center;
-      padding: var(--space-2) var(--space-4);
-      background-color: var(--color-surface);
-      font-size: var(--font-sm);
-      font-weight: var(--font-weight-medium);
-      color: var(--color-muted);
-      border-radius: var(--radius-md);
-      margin-bottom: var(--space-2);
+      padding: var(--space-3) var(--space-4);
+      font-size: var(--font-md);
+      font-weight: var(--font-weight-semibold);
+      color: var(--color-text);
     }
 
-    .notes-list {
+    .wards-container {
       display: flex;
       flex-direction: column;
-      gap: var(--space-2);
     }
   `;
 
-  private formatDate(dateStr: string): string {
-    const date = new Date(dateStr + 'T00:00:00');
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    if (dateStr === today.toISOString().split('T')[0]) {
-      return 'Hoje';
-    }
-
-    if (dateStr === yesterday.toISOString().split('T')[0]) {
-      return 'Ontem';
-    }
-
-    return date.toLocaleDateString('pt-BR', {
-      weekday: 'short',
-      day: '2-digit',
-      month: 'short',
-    });
-  }
-
   override render() {
     return html`
-      <div class="date-header">${this.formatDate(this.date)}</div>
-      <div class="notes-list">
-        <slot></slot>
+      <div class="date-header">${this.date}</div>
+      <div class="wards-container">
+        ${this.wards.map((wardGroup) => html`<ward-group .ward=${wardGroup.ward} .notes=${wardGroup.notes}></ward-group>`)}
       </div>
     `;
   }

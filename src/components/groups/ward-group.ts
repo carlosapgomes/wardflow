@@ -5,11 +5,13 @@
 
 import { LitElement, css, html } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
+import type { Note } from '@/models/note';
+import '../items/note-item';
 
 @customElement('ward-group')
 export class WardGroup extends LitElement {
   @property({ type: String }) ward = '';
-  @property({ type: Number }) noteCount = 0;
+  @property({ type: Array }) notes: Note[] = [];
 
   static override styles = css`
     :host {
@@ -18,42 +20,25 @@ export class WardGroup extends LitElement {
     }
 
     .ward-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: var(--space-3) var(--space-4);
-      background-color: var(--color-primary-light);
-      border-radius: var(--radius-md);
-      margin-bottom: var(--space-2);
-    }
-
-    .ward-name {
-      font-size: var(--font-md);
-      font-weight: var(--font-weight-semibold);
-      color: var(--color-primary);
-    }
-
-    .ward-count {
+      padding: var(--space-2) var(--space-4);
       font-size: var(--font-sm);
+      font-weight: var(--font-weight-semibold);
       color: var(--color-muted);
-      background-color: var(--color-bg);
-      padding: var(--space-1) var(--space-2);
-      border-radius: var(--radius-full);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
     }
 
-    .notes-container {
-      padding-left: var(--space-4);
+    .notes-list {
+      display: flex;
+      flex-direction: column;
     }
   `;
 
   override render() {
     return html`
-      <div class="ward-header">
-        <span class="ward-name">${this.ward}</span>
-        <span class="ward-count">${this.noteCount} notas</span>
-      </div>
-      <div class="notes-container">
-        <slot></slot>
+      <div class="ward-header">${this.ward}</div>
+      <div class="notes-list">
+        ${this.notes.map((note) => html`<note-item .note=${note}></note-item>`)}
       </div>
     `;
   }

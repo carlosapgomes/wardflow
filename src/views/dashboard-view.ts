@@ -7,9 +7,10 @@ import { LitElement, css, html } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { navigate } from '@/router/router';
 import { getAllNotes } from '@/services/db/notes-service';
+import { groupNotesByDateAndWard } from '@/utils/group-notes-by-date-and-ward';
 import type { Note } from '@/models/note';
 import '../components/base/fab-button';
-import '../components/items/note-item';
+import '../components/groups/date-group';
 
 @customElement('dashboard-view')
 export class DashboardView extends LitElement {
@@ -98,9 +99,13 @@ export class DashboardView extends LitElement {
   }
 
   private renderNotesList() {
+    const groupedNotes = groupNotesByDateAndWard(this.notes);
+
     return html`
       <div class="notes-list">
-        ${this.notes.map((note) => html`<note-item .note=${note}></note-item>`)}
+        ${groupedNotes.map(
+          (group) => html`<date-group .date=${group.date} .wards=${group.wards}></date-group>`
+        )}
       </div>
     `;
   }
