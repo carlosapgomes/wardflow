@@ -9,7 +9,7 @@ import { initializeRouter, subscribeToRoute, type RouteMatch } from '@/router/ro
 import { initializeAuth, subscribeToAuth, type AuthState } from '@/services/auth/auth-service';
 import { initializeTheme } from '@/services/theme/theme-service';
 import { cleanExpiredNotes } from '@/services/db/dexie-db';
-import { cleanupSync, initializeSync, syncNow } from '@/services/sync/sync-service';
+import { cleanupSync, initializeSync, pullRemoteNotes, syncNow } from '@/services/sync/sync-service';
 
 // Import layout components
 import './components/layout/app-header';
@@ -55,6 +55,7 @@ export class WardFlowApp extends LitElement {
 
       if (!state.loading && state.user) {
         void syncNow();
+        void pullRemoteNotes();
       }
     });
 

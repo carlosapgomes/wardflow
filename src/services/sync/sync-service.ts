@@ -11,14 +11,17 @@ import type { SyncQueueItem } from '@/models/sync-queue';
 import { getFirebaseFirestore } from '@/services/auth/firebase';
 import { getAuthState } from '@/services/auth/auth-service';
 import {
+  collection,
   deleteDoc,
   doc,
+  getDocs,
   setDoc,
   updateDoc,
   type DocumentData,
   type Firestore,
   type UpdateData,
 } from 'firebase/firestore';
+import type { Timestamp } from 'firebase/firestore';
 import { SYNC_QUEUE_CONSTANTS } from '@/models/sync-queue';
 
 export interface SyncStatus {
@@ -266,6 +269,94 @@ async function syncIfAuthenticated(): Promise<void> {
   }
 
   await syncNow();
+  await pullRemoteNotes();
+}
+
+/**
+ * Pull inicial de notas remotas do Firestore para IndexedDB
+ * Hidrata dados locais no login usando notas já existentes na nuvem
+ */
+export async function pullRemoteNotes(): Promise<void> {
+  const { user, loading } = getAuthState();
+
+  if (loading || !user) {
+    return;
+  }
+
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return;
+  }
+
+  const firestore = getFirebaseFirestore();
+
+  if (!firestore) {
+    console.warn('[WardFlow] Firestore não configurado');
+    return;
+  }
+
+  try {
+    const notesCollection = collection(firestore, 'users', user.uid, 'notes');
+    const notesSnapshot = await getDocs(notesCollection);
+
+    if (notesSnapshot.empty) {
+      return;
+    }
+
+    const localNotes = notesSnapshot.docs.map((docSnap) => {
+      const data = docSnap.data() as FirestoreNoteData;
+      return convertFirestoreNoteToLocal(docSnap.id, data, user.uid);
+    });
+
+    // Upsert into IndexedDB
+    await db.notes.bulkPut(localNotes);
+
+    console.log(`[WardFlow] Pull concluído: ${String(localNotes.length)} notas importadas`);
+  } catch (error) {
+    console.error('[WardFlow] Erro no pull de notas remotas:', error);
+  }
+}
+
+/**
+ * Interface para dados de nota vindos do Firestore
+ */
+interface FirestoreNoteData {
+  date: string | null;
+  ward: string | null;
+  bed: string | null;
+  reference?: string;
+  note: string | null;
+  createdAt: Timestamp;
+  updatedAt?: Timestamp;
+  expiresAt: Timestamp;
+}
+
+/**
+ * Converte documento do Firestore para modelo local Note
+ */
+function convertFirestoreNoteToLocal(
+  id: string,
+  data: FirestoreNoteData,
+  userId: string
+): Note {
+  // Handle Firestore Timestamp conversion
+  const createdAt = data.createdAt.toDate();
+  const updatedAt = data.updatedAt?.toDate();
+  const expiresAt = data.expiresAt.toDate();
+
+  return {
+    id,
+    userId,
+    date: data.date ?? '',
+    ward: data.ward ?? '',
+    bed: data.bed ?? '',
+    reference: data.reference,
+    note: data.note ?? '',
+    createdAt,
+    updatedAt,
+    expiresAt,
+    syncStatus: 'synced',
+    syncedAt: new Date(),
+  };
 }
 
 /**
