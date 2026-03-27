@@ -273,6 +273,39 @@ async function syncIfAuthenticated(): Promise<void> {
 }
 
 /**
+ * Resolve conflito entre nota local e remota usando política LWW.
+ *
+ * Regras:
+ * - Se não existe local -> usar remote
+ * - Se local.syncStatus é 'pending' ou 'failed' -> manter local
+ * - Caso contrário, comparar timestamps (updatedAt > createdAt como fallback)
+ *   - remote mais novo -> usar remote
+ *   - local mais novo ou empate -> manter local
+ */
+export function resolveNoteConflict(local: Note | undefined, remote: Note): Note {
+  // Caso 1: não existe local - usar remoto
+  if (!local) {
+    return remote;
+  }
+
+  // Caso 2: local com operação pendente ou falhou - preservar local
+  if (local.syncStatus === 'pending' || local.syncStatus === 'failed') {
+    return local;
+  }
+
+  // Caso 3: ambos synced - comparar timestamps (LWW)
+  const localVersion = local.updatedAt ?? local.createdAt;
+  const remoteVersion = remote.updatedAt ?? remote.createdAt;
+
+  if (remoteVersion > localVersion) {
+    return remote;
+  }
+
+  // Empate ou local mais novo - manter local
+  return local;
+}
+
+/**
  * Pull inicial de notas remotas do Firestore para IndexedDB
  * Hidrata dados locais no login usando notas já existentes na nuvem
  */
@@ -302,15 +335,36 @@ export async function pullRemoteNotes(): Promise<void> {
       return;
     }
 
-    const localNotes = notesSnapshot.docs.map((docSnap) => {
+    const notesToUpsert: Note[] = [];
+
+    for (const docSnap of notesSnapshot.docs) {
       const data = docSnap.data() as FirestoreNoteData;
-      return convertFirestoreNoteToLocal(docSnap.id, data, user.uid);
-    });
+      const remoteNote = convertFirestoreNoteToLocal(docSnap.id, data, user.uid);
 
-    // Upsert into IndexedDB
-    await db.notes.bulkPut(localNotes);
+      // Buscar nota local existente
+      const localNote = await db.notes.get(docSnap.id);
 
-    console.log(`[WardFlow] Pull concluído: ${String(localNotes.length)} notas importadas`);
+      // Aplicar política de resolução de conflito
+      const resolvedNote = resolveNoteConflict(localNote, remoteNote);
+
+      // Log de debug apenas quando há conflito real
+      if (localNote && localNote.syncStatus !== 'pending' && localNote.syncStatus !== 'failed') {
+        const localVersion = localNote.updatedAt ?? localNote.createdAt;
+        const remoteVersion = remoteNote.updatedAt ?? remoteNote.createdAt;
+        if (remoteVersion > localVersion) {
+          console.debug(`[WardFlow] Conflito resolvido (remote wins): ${docSnap.id}`);
+        } else if (localVersion > remoteVersion) {
+          console.debug(`[WardFlow] Conflito resolvido (local wins): ${docSnap.id}`);
+        }
+      }
+
+      notesToUpsert.push(resolvedNote);
+    }
+
+    // Upsert into IndexedDB com notas resolvidas
+    await db.notes.bulkPut(notesToUpsert);
+
+    console.log(`[WardFlow] Pull concluído: ${String(notesToUpsert.length)} notas importadas`);
   } catch (error) {
     console.error('[WardFlow] Erro no pull de notas remotas:', error);
   }
