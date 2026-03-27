@@ -14,6 +14,7 @@ import type { WardGroupData } from '@/components/groups/date-group';
 import '../components/base/fab-button';
 import '../components/groups/date-group';
 import '../components/feedback/action-sheet';
+import '../components/feedback/sync-status-bar';
 
 /** Ações disponíveis no action sheet de grupo */
 const ACTIONS = [
@@ -306,8 +307,9 @@ export class DashboardView extends LitElement {
   private renderDashboardContent() {
     return html`
       <app-header title="WardFlow"></app-header>
+      <sync-status-bar></sync-status-bar>
 
-      <main class="container-fluid wf-page-container wf-with-header wf-sheet-safe pb-4">
+      <main class="container-fluid wf-page-container wf-with-header-sync wf-sheet-safe pb-4">
         ${this.isLoading
           ? html`<div class="d-flex align-items-center justify-content-center text-secondary" style="min-height: 50vh;">Carregando...</div>`
           : this.notes.length > 0
@@ -323,7 +325,7 @@ export class DashboardView extends LitElement {
     return html`
       <app-header title="WardFlow"></app-header>
 
-      <main class="container-fluid wf-page-container wf-with-header pb-4">
+      <main class="container-fluid wf-page-container wf-with-header-sync pb-4">
         <div class="card border-0 shadow-sm mb-3">
           <div class="card-header bg-body fw-semibold">Pré-visualizar mensagem</div>
           <div class="card-body">
