@@ -5,9 +5,9 @@
 
 import { db } from './dexie-db';
 import { createNote, NOTE_CONSTANTS, type Note } from '@/models/note';
+import { createSyncQueueItem } from '@/models/sync-queue';
 import { isNoteActive } from '@/utils/note-expiration';
 import { getAuthState } from '@/services/auth/auth-service';
-import { queueNoteForSync } from '@/services/sync/sync-service';
 
 export interface CreateNoteInput {
   ward: string;
@@ -30,6 +30,17 @@ function requireUserId(): string {
 }
 
 /**
+ * Enfileira operação de sync para nota dentro de transação local
+ */
+async function queueNoteForSyncInTransaction(
+  operation: 'create' | 'update' | 'delete',
+  note: Note
+): Promise<void> {
+  const item = createSyncQueueItem(operation, 'note', note.id, note);
+  await db.syncQueue.add(item);
+}
+
+/**
  * Cria e salva uma nova nota no banco local
  */
 export async function saveNote(input: CreateNoteInput): Promise<Note> {
@@ -44,8 +55,11 @@ export async function saveNote(input: CreateNoteInput): Promise<Note> {
     syncStatus: 'pending',
   });
 
-  await db.notes.add(note);
-  await queueNoteForSync('create', note);
+  await db.transaction('rw', db.notes, db.syncQueue, async () => {
+    await db.notes.add(note);
+    await queueNoteForSyncInTransaction('create', note);
+  });
+
   return note;
 }
 
@@ -95,14 +109,16 @@ export function validateNoteInput(input: CreateNoteInput): boolean {
  * Deleta uma nota pelo ID
  */
 export async function deleteNote(noteId: string): Promise<void> {
-  const note = await db.notes.get(noteId);
+  await db.transaction('rw', db.notes, db.syncQueue, async () => {
+    const note = await db.notes.get(noteId);
 
-  if (!note) {
-    return;
-  }
+    if (!note) {
+      return;
+    }
 
-  await db.notes.delete(noteId);
-  await queueNoteForSync('delete', note);
+    await db.notes.delete(noteId);
+    await queueNoteForSyncInTransaction('delete', note);
+  });
 }
 
 /**
@@ -113,17 +129,19 @@ export async function deleteNotes(noteIds: string[]): Promise<void> {
     return;
   }
 
-  const notesToDelete = await db.notes.where('id').anyOf(noteIds).toArray();
+  await db.transaction('rw', db.notes, db.syncQueue, async () => {
+    const notesToDelete = await db.notes.where('id').anyOf(noteIds).toArray();
 
-  if (notesToDelete.length === 0) {
-    return;
-  }
+    if (notesToDelete.length === 0) {
+      return;
+    }
 
-  await db.notes.bulkDelete(noteIds);
+    await db.notes.bulkDelete(noteIds);
 
-  for (const note of notesToDelete) {
-    await queueNoteForSync('delete', note);
-  }
+    for (const note of notesToDelete) {
+      await queueNoteForSyncInTransaction('delete', note);
+    }
+  });
 }
 
 /**
@@ -135,17 +153,19 @@ export async function updateNote(
 ): Promise<void> {
   const updatedAt = new Date();
 
-  await db.notes.update(noteId, {
-    ...updates,
-    updatedAt,
-    syncStatus: 'pending',
+  await db.transaction('rw', db.notes, db.syncQueue, async () => {
+    await db.notes.update(noteId, {
+      ...updates,
+      updatedAt,
+      syncStatus: 'pending',
+    });
+
+    const updatedNote = await db.notes.get(noteId);
+
+    if (!updatedNote) {
+      return;
+    }
+
+    await queueNoteForSyncInTransaction('update', updatedNote);
   });
-
-  const updatedNote = await db.notes.get(noteId);
-
-  if (!updatedNote) {
-    return;
-  }
-
-  await queueNoteForSync('update', updatedNote);
 }
