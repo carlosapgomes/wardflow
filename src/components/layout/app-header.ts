@@ -66,20 +66,27 @@ export class AppHeader extends LitElement {
     }
   };
 
+  private handleAvatarImageError = (e: Event): void => {
+    const img = e.currentTarget as HTMLImageElement;
+    img.style.display = 'none';
+  };
+
   private getAvatarContent() {
     if (!this.user) return null;
 
-    if (this.user.photoURL) {
-      return html`<img src=${this.user.photoURL} alt="Avatar" />`;
-    }
-
     const initial = this.user.displayName?.charAt(0).toUpperCase() ?? 'U';
-    return initial;
+
+    return html`
+      <span class="wf-avatar-initial">${initial}</span>
+      ${this.user.photoURL
+        ? html`<img src=${this.user.photoURL} alt="" referrerpolicy="no-referrer" @error=${this.handleAvatarImageError} />`
+        : null}
+    `;
   }
 
   override render() {
     return html`
-      <div class="wf-app-header fixed-top border-bottom bg-body">
+      <div class="wf-app-header fixed-top border-bottom">
         <nav class="navbar p-0">
           <div class="container-fluid wf-page-container px-3">
             <div class="d-flex align-items-center justify-content-between w-100">
