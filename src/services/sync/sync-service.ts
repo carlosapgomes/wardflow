@@ -364,6 +364,25 @@ export async function pullRemoteNotes(): Promise<void> {
     // Upsert into IndexedDB com notas resolvidas
     await db.notes.bulkPut(notesToUpsert);
 
+    // Reconciliação: remover localmente notas órfãs (deletadas remotamente)
+    // Só remove notas com syncStatus 'synced' para não perder alterações locais pendentes
+    const remoteIds = new Set(notesToUpsert.map((n) => n.id));
+    const localSyncedNotes = await db.notes
+      .where({ userId: user.uid, syncStatus: 'synced' })
+      .toArray();
+
+    const orphanedIds: string[] = [];
+    for (const localNote of localSyncedNotes) {
+      if (!remoteIds.has(localNote.id)) {
+        orphanedIds.push(localNote.id);
+      }
+    }
+
+    if (orphanedIds.length > 0) {
+      await db.notes.bulkDelete(orphanedIds);
+      console.log(`[WardFlow] ${String(orphanedIds.length)} notas órfãs removidas localmente`);
+    }
+
     console.log(`[WardFlow] Pull concluído: ${String(notesToUpsert.length)} notas importadas`);
   } catch (error) {
     console.error('[WardFlow] Erro no pull de notas remotas:', error);
