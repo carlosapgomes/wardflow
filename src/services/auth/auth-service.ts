@@ -12,6 +12,7 @@ import {
   type Unsubscribe,
 } from 'firebase/auth';
 import { getFirebaseAuth, initializeFirebase } from './firebase';
+import { clearLocalUserData } from '../db/dexie-db';
 
 export type { User };
 
@@ -138,6 +139,9 @@ export async function signOutUser(): Promise<void> {
   }
 
   try {
+    // Limpa dados locais antes de encerrar sessão (dispositivo compartilhado)
+    await clearLocalUserData();
+
     await signOut(auth);
     currentState = {
       user: null,

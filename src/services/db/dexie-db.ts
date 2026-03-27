@@ -47,6 +47,17 @@ class WardFlowDB extends Dexie {
 export const db = new WardFlowDB();
 
 /**
+ * Limpa dados locais do usuário (notes + syncQueue)
+ * Usado no logout para evitar dados órfãos em dispositivo compartilhado
+ */
+export async function clearLocalUserData(): Promise<void> {
+  await db.transaction('rw', [db.notes, db.syncQueue], async () => {
+    await db.notes.clear();
+    await db.syncQueue.clear();
+  });
+}
+
+/**
  * Limpa notas expiradas do banco local
  */
 export async function cleanExpiredNotes(): Promise<number> {
