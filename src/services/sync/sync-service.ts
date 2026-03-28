@@ -404,6 +404,39 @@ interface FirestoreNoteData {
 }
 
 /**
+ * Converte timestamp do Firestore para Date JavaScript
+ * Trata diferentes formatos: Timestamp, string, número ou Date
+ */
+function convertTimestampToDate(value: unknown): Date | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  // Firebase Timestamp (tem método toDate)
+  if (typeof value === 'object' && typeof (value as { toDate?: () => Date }).toDate === 'function') {
+    return (value as { toDate: () => Date }).toDate();
+  }
+
+  // String ISO
+  if (typeof value === 'string') {
+    const date = new Date(value);
+    return isNaN(date.getTime()) ? undefined : date;
+  }
+
+  // Número (unix timestamp em milissegundos)
+  if (typeof value === 'number') {
+    return new Date(value);
+  }
+
+  // Já é Date
+  if (value instanceof Date) {
+    return value;
+  }
+
+  return undefined;
+}
+
+/**
  * Converte documento do Firestore para modelo local Note
  */
 function convertFirestoreNoteToLocal(
@@ -411,10 +444,13 @@ function convertFirestoreNoteToLocal(
   data: FirestoreNoteData,
   userId: string
 ): Note {
-  // Handle Firestore Timestamp conversion
-  const createdAt = data.createdAt.toDate();
-  const updatedAt = data.updatedAt?.toDate();
-  const expiresAt = data.expiresAt.toDate();
+  const createdAt = convertTimestampToDate(data.createdAt);
+  const updatedAt = convertTimestampToDate(data.updatedAt);
+  const expiresAt = convertTimestampToDate(data.expiresAt);
+
+  if (!createdAt || !expiresAt) {
+    console.warn(`[WardFlow] Dados de nota inválidos (ID: ${id}), usando valores padrão`);
+  }
 
   return {
     id,
@@ -424,9 +460,9 @@ function convertFirestoreNoteToLocal(
     bed: data.bed ?? '',
     reference: data.reference,
     note: data.note ?? '',
-    createdAt,
+    createdAt: createdAt ?? new Date(),
     updatedAt,
-    expiresAt,
+    expiresAt: expiresAt ?? new Date(Date.now() + 24 * 60 * 60 * 1000), // padrão: 24h
     syncStatus: 'synced',
     syncedAt: new Date(),
   };
