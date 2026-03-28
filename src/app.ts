@@ -5,7 +5,7 @@
 
 import { LitElement, html } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
-import { initializeRouter, subscribeToRoute, type RouteMatch } from '@/router/router';
+import { initializeRouter, subscribeToRoute, getCurrentRoute, navigate, type RouteMatch } from '@/router/router';
 import { initializeAuth, subscribeToAuth, type AuthState } from '@/services/auth/auth-service';
 import { initializeTheme } from '@/services/theme/theme-service';
 import { cleanExpiredNotes } from '@/services/db/dexie-db';
@@ -51,11 +51,17 @@ export class WardFlowApp extends LitElement {
 
     // Subscribe ao estado de auth para saber quando terminou de carregar
     this.unsubscribeAuth = subscribeToAuth((state: AuthState) => {
+      const wasLoading = this.isAuthLoading;
       this.isAuthLoading = state.loading;
 
+      // Quando auth termina de carregar, revalida rota atual
+      if (wasLoading && !state.loading) {
+        this.revalidateRoute(state.user !== null);
+      }
+
+      // Sync sequencial após confirmar usuário logado
       if (!state.loading && state.user) {
-        void syncNow();
-        void pullRemoteNotes();
+        void this.performSync();
       }
     });
 
@@ -78,6 +84,37 @@ export class WardFlowApp extends LitElement {
 
   private handleRouteChange(match: RouteMatch): void {
     this.currentComponent = match.route.component;
+  }
+
+  /**
+   * Revalida a rota atual quando auth resolve
+   * Garante que rotas protegidas não sejam exibidas para usuários deslogados
+   */
+  private revalidateRoute(isLoggedIn: boolean): void {
+    const currentRoute = getCurrentRoute();
+    if (!currentRoute) return;
+
+    const isProtectedRoute = currentRoute.route.guard !== undefined;
+    const isLoginRoute = currentRoute.route.path === '/login';
+
+    // Deslogado em rota protegida -> /login
+    if (isProtectedRoute && !isLoggedIn) {
+      navigate('/login', true);
+      return;
+    }
+
+    // Logado em /login -> /dashboard
+    if (isLoginRoute && isLoggedIn) {
+      navigate('/dashboard', true);
+    }
+  }
+
+  /**
+   * executa sync sequencialmente (sync + pull)
+   */
+  private async performSync(): Promise<void> {
+    await syncNow();
+    await pullRemoteNotes();
   }
 
   override render() {
