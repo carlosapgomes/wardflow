@@ -182,10 +182,7 @@ export class NewNoteView extends LitElement {
             </div>
 
             <div class="mb-2">
-              <label for="note" class="form-label">
-                Nota *
-                <small class="text-muted fw-normal ms-1"><i class="bi bi-mic-fill"></i></small>
-              </label>
+              <label for="note" class="form-label">Nota *</label>
               <textarea
                 id="note"
                 class="form-control"
