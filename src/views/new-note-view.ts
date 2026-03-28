@@ -188,7 +188,7 @@ export class NewNoteView extends LitElement {
                 class="form-control"
                 .value=${this.note}
                 @input=${this.handleNoteInput}
-                placeholder="Digite a nota clínica ou use o ditado do teclado 🎤"
+                placeholder="Digite ou use o microfone do teclado"
                 maxlength=${NOTE_CONSTANTS.MAX_NOTE_LENGTH}
                 rows="6"
               ></textarea>
