@@ -6,7 +6,7 @@
 import { LitElement, html } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { navigate, getCurrentRoute } from '@/router/router';
-import { saveNote, updateNote, getNoteById, validateNoteInput, type CreateNoteInput } from '@/services/db/notes-service';
+import { saveNote, updateNote, getNoteById, validateNoteInput, getUniqueWards, type CreateNoteInput } from '@/services/db/notes-service';
 import { NOTE_CONSTANTS } from '@/models/note';
 import { startRecording, stopRecording, initRecorder } from '@/services/asr/audio-recorder';
 import type { RecordingState } from '@/services/asr/asr-types';
@@ -19,6 +19,7 @@ export class NewNoteView extends LitElement {
   @state() private reference = '';
   @state() private note = '';
   @state() private saving = false;
+  @state() private wardSuggestions: string[] = [];
   @state() private loading = false;
   @state() private error = '';
   @state() private recordingState: RecordingState = 'idle';
@@ -37,6 +38,9 @@ export class NewNoteView extends LitElement {
 
     // Inicializa recorder
     initRecorder();
+
+    // Carrega sugestões de alas
+    this.wardSuggestions = await getUniqueWards();
 
     // Verifica se há um ID na rota (modo edição)
     const route = getCurrentRoute();
@@ -198,11 +202,16 @@ export class NewNoteView extends LitElement {
                 id="ward"
                 class="form-control"
                 type="text"
+                list="ward-suggestions"
                 .value=${this.ward}
                 @input=${this.handleWardInput}
                 placeholder="Ex: UTI, Enfermaria A"
                 autocomplete="off"
               />
+
+              <datalist id="ward-suggestions">
+                ${this.wardSuggestions.map((ward) => html`<option value=${ward}>`)}
+              </datalist>
             </div>
 
             <div class="mb-3">

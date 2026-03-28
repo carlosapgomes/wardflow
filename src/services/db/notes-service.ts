@@ -118,6 +118,31 @@ export async function getNoteById(noteId: string): Promise<Note | undefined> {
 }
 
 /**
+ * Busca alas/enfermarias únicas já utilizadas pelo usuário
+ * Ordenadas alfabeticamente para facilitar a busca
+ * Nota: só inclui notas ativas (não expiradas)
+ */
+export async function getUniqueWards(): Promise<string[]> {
+  const { user } = getAuthState();
+
+  if (!user) {
+    return [];
+  }
+
+  const now = new Date();
+  const notes = await db.notes
+    .where('userId')
+    .equals(user.uid)
+    .filter((note) => isNoteActive(note, now))
+    .toArray();
+
+  // Extrai wards únicos, removendo valores vazios
+  const uniqueWards = [...new Set(notes.map((note) => note.ward).filter((ward) => ward.trim().length > 0))];
+
+  return uniqueWards.sort((a, b) => a.localeCompare(b, 'pt-BR'));
+}
+
+/**
  * Valida se os campos obrigatórios estão preenchidos
  */
 export function validateNoteInput(input: CreateNoteInput): boolean {
