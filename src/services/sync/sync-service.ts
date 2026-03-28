@@ -17,6 +17,7 @@ import {
   getDocs,
   setDoc,
   updateDoc,
+  increment,
   type DocumentData,
   type Firestore,
   type UpdateData,
@@ -185,10 +186,25 @@ export async function syncNow(): Promise<void> {
  * Processa um item da fila de sincronização
  */
 async function processSyncItem(item: SyncQueueItem, firestore: Firestore): Promise<void> {
-  if (item.entityType !== 'note') {
-    throw new Error(`Tipo de entidade não suportado: ${item.entityType}`);
+  // Processa notas
+  if (item.entityType === 'note') {
+    await processNoteSyncItem(item, firestore);
+    return;
   }
 
+  // Processa wardStats
+  if (item.entityType === 'wardStat') {
+    await processWardStatSyncItem(item, firestore);
+    return;
+  }
+
+  throw new Error(`Tipo de entidade não suportado: ${item.entityType}`);
+}
+
+/**
+ * Processa sync de nota
+ */
+async function processNoteSyncItem(item: SyncQueueItem, firestore: Firestore): Promise<void> {
   let notePayload: Note;
 
   try {
@@ -225,6 +241,57 @@ async function processSyncItem(item: SyncQueueItem, firestore: Firestore): Promi
 }
 
 /**
+ * Payload do sync de wardStat
+ */
+interface WardStatSyncPayload {
+  wardKey: string;
+  wardLabel: string;
+  usageCount: number;
+  lastUsedAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Processa sync de wardStat com incremento
+ * Usa increment() do Firestore para modelo aditivo
+ */
+async function processWardStatSyncItem(item: SyncQueueItem, firestore: Firestore): Promise<void> {
+  let payload: WardStatSyncPayload;
+
+  try {
+    payload = JSON.parse(item.payload) as WardStatSyncPayload;
+  } catch {
+    throw new Error('Payload inválido na fila de sincronização de wardStat');
+  }
+
+  const wardRef = doc(firestore, 'users', item.userId, 'wardStats', item.entityId);
+  const now = new Date();
+
+  // Dados que sempre devem ser atualizados (não incrementais)
+  const updateData = {
+    wardKey: payload.wardKey,
+    wardLabel: payload.wardLabel,
+    lastUsedAt: payload.lastUsedAt,
+    updatedAt: now.toISOString(),
+    userId: item.userId,
+  };
+
+  // Tenta usar updateDoc com increment primeiro
+  try {
+    await updateDoc(wardRef, {
+      ...updateData,
+      usageCount: increment(1),
+    } as UpdateData<DocumentData>);
+  } catch {
+    // Se documento não existe, usa setDoc com merge
+    await setDoc(wardRef, {
+      ...updateData,
+      usageCount: increment(1),
+    }, { merge: true });
+  }
+}
+
+/**
  * Trata erros de sincronização
  */
 async function handleSyncError(item: SyncQueueItem, error: unknown): Promise<void> {
@@ -240,6 +307,7 @@ async function handleSyncError(item: SyncQueueItem, error: unknown): Promise<voi
       lastAttemptAt,
     });
 
+    // Marca sincronização falhou apenas para notas (não para wardStats)
     if (item.entityType === 'note') {
       await db.notes.update(item.entityId, {
         syncStatus: 'failed',

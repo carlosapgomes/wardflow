@@ -8,8 +8,8 @@ import { createNote, NOTE_CONSTANTS, type Note } from '@/models/note';
 import { createSyncQueueItem } from '@/models/sync-queue';
 import { isNoteActive } from '@/utils/note-expiration';
 import { getAuthState } from '@/services/auth/auth-service';
-import { recordWardUsage, getWardSuggestions } from './ward-stats-service';
-import { normalizeWardKey } from '@/models/ward-stat';
+import { getWardSuggestions } from './ward-stats-service';
+import { createWardStatId, normalizeWardKey, normalizeWardLabel, type WardStat } from '@/models/ward-stat';
 
 export interface CreateNoteInput {
   ward: string;
@@ -52,7 +52,91 @@ async function queueNoteForSyncInTransaction(
 }
 
 /**
+ * Cria payload para sync de wardStat (incremental)
+ */
+interface WardStatSyncPayload {
+  wardKey: string;
+  wardLabel: string;
+  usageCount: number;
+  lastUsedAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Enfileira operação de sync para wardStat dentro de transação local
+ * Usa operação 'increment' para modelo de incremento no Firestore
+ */
+async function queueWardStatForSyncInTransaction(
+  wardStat: WardStat
+): Promise<void> {
+  const payload: WardStatSyncPayload = {
+    wardKey: wardStat.wardKey,
+    wardLabel: wardStat.wardLabel,
+    usageCount: 1, // Siempre 1 para incremento
+    lastUsedAt: wardStat.lastUsedAt.toISOString(),
+    updatedAt: wardStat.updatedAt.toISOString(),
+  };
+  const item = createSyncQueueItem(
+    wardStat.userId,
+    'increment',
+    'wardStat',
+    wardStat.wardKey,
+    payload
+  );
+  await db.syncQueue.add(item);
+}
+
+/**
+ * Registra uso de ala e enfileira sync na mesma transação da nota
+ * Criado/atualizado + registro de uso + sync wardStat são atômicos
+ */
+async function recordWardUsageAndQueueSync(
+  userId: string,
+  ward: string
+): Promise<WardStat | null> {
+  const wardKey = normalizeWardKey(ward);
+  const wardLabel = normalizeWardLabel(ward);
+
+  if (!wardKey) {
+    return null;
+  }
+
+  const id = createWardStatId(userId, wardKey);
+  const now = new Date();
+
+  const existing = await db.wardStats.get(id);
+
+  if (existing) {
+    // Incrementa contador
+    const updated: WardStat = {
+      ...existing,
+      usageCount: existing.usageCount + 1,
+      lastUsedAt: now,
+      updatedAt: now,
+    };
+    await db.wardStats.update(id, updated);
+    await queueWardStatForSyncInTransaction(updated);
+    return updated;
+  } else {
+    // Cria novo registro
+    const newStat: WardStat = {
+      id,
+      userId,
+      wardKey,
+      wardLabel,
+      usageCount: 1,
+      lastUsedAt: now,
+      updatedAt: now,
+    };
+    await db.wardStats.add(newStat);
+    await queueWardStatForSyncInTransaction(newStat);
+    return newStat;
+  }
+}
+
+/**
  * Cria e salva uma nova nota no banco local
+ * Inclui registro de uso de ala + sync na mesma transação
  */
 export async function saveNote(input: CreateNoteInput): Promise<Note> {
   const userId = requireUserId();
@@ -66,13 +150,14 @@ export async function saveNote(input: CreateNoteInput): Promise<Note> {
     syncStatus: 'pending',
   });
 
-  await db.transaction('rw', db.notes, db.syncQueue, async () => {
+  // Transação atômica: nota + wardStat + sync queue
+  await db.transaction('rw', db.notes, db.syncQueue, db.wardStats, async () => {
     await db.notes.add(note);
     await queueNoteForSyncInTransaction('create', note);
-  });
 
-  // Registra uso da ala após salvar
-  await recordWardUsage(input.ward);
+    // Registra uso da ala e enfileira sync na mesma transação
+    await recordWardUsageAndQueueSync(userId, input.ward);
+  });
 
   return note;
 }
@@ -230,7 +315,7 @@ export async function deleteNotes(noteIds: string[]): Promise<void> {
 /**
  * Atualiza uma nota existente
  * Valida que a nota pertence ao usuário atual
- * Registra uso da ala se houver mudança
+ * Registra uso da ala + sync se houver mudança (mesma transação)
  */
 export async function updateNote(
   noteId: string,
@@ -252,7 +337,8 @@ export async function updateNote(
     newWardValue !== undefined &&
     normalizeWardKey(existingNote.ward) !== normalizeWardKey(newWardValue);
 
-  await db.transaction('rw', db.notes, db.syncQueue, async () => {
+  // Transação atômica: nota + wardStat (se mudou) + sync queue
+  await db.transaction('rw', db.notes, db.syncQueue, db.wardStats, async () => {
     await db.notes.update(noteId, {
       ...updates,
       updatedAt,
@@ -264,10 +350,10 @@ export async function updateNote(
     if (updatedNote) {
       await queueNoteForSyncInTransaction('update', updatedNote);
     }
-  });
 
-  // Registra uso se ala mudou
-  if (wardChanged) {
-    await recordWardUsage(newWardValue);
-  }
+    // Registra uso da ala e enfileira sync se ala mudou
+    if (wardChanged && newWardValue) {
+      await recordWardUsageAndQueueSync(userId, newWardValue);
+    }
+  });
 }

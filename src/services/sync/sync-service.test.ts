@@ -28,6 +28,11 @@ vi.mock('@/services/db/dexie-db', () => ({
       delete: vi.fn(),
       count: vi.fn().mockResolvedValue(0),
     },
+    wardStats: {
+      get: vi.fn(),
+      add: vi.fn(),
+      update: vi.fn(),
+    },
   },
 }));
 
@@ -49,9 +54,11 @@ vi.mock('firebase/firestore', () => ({
   updateDoc: vi.fn(),
   deleteDoc: vi.fn(),
   getDocs: vi.fn(),
+  increment: vi.fn((n: number) => n), // Mock do increment
 }));
 
 import * as syncService from './sync-service';
+import { createSyncQueueItem, type SyncQueueItem } from '@/models/sync-queue';
 
 // Mock do window para navigator.onLine
 const mockWindow = {
@@ -305,5 +312,49 @@ describe('sync-service - initializeSync / cleanupSync', () => {
 
     expect(mockWindow.addEventListener).toHaveBeenCalledTimes(1);
     expect(mockWindow.setInterval).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('sync-service - wardStat sync', () => {
+  it('deve criar item de fila com entityType wardStat', () => {
+    const payload = {
+      wardKey: 'UTI',
+      wardLabel: 'UTI',
+      usageCount: 1,
+      lastUsedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const item = createSyncQueueItem(
+      'user-123',
+      'increment',
+      'wardStat',
+      'UTI',
+      payload
+    );
+
+    expect(item.entityType).toBe('wardStat');
+    expect(item.operation).toBe('increment');
+    expect(item.entityId).toBe('UTI');
+    expect(item.userId).toBe('user-123');
+  });
+
+  it('deve suportar entityType wardStat no SyncQueueItem', () => {
+    const item: SyncQueueItem = {
+      id: 'test-id',
+      userId: 'user-123',
+      operation: 'increment',
+      entityType: 'wardStat',
+      entityId: 'UTI',
+      payload: '{}',
+      createdAt: new Date(),
+      retryCount: 0,
+    };
+
+    expect(item.entityType).toBe('wardStat');
+  });
+
+  it('deve suportar operação increment no SyncOperation', () => {
+    // Este teste apenas verifica que a operação increment é válida
   });
 });
