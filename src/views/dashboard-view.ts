@@ -25,12 +25,6 @@ const ACTIONS = [
   { id: 'delete', label: 'Excluir' },
 ];
 
-/** Ações disponíveis no action sheet de nota individual */
-const NOTE_ACTIONS = [
-  { id: 'edit', label: 'Editar' },
-  { id: 'delete', label: 'Excluir' },
-];
-
 /** Tipo de escopo selecionado */
 type SelectedScope =
   | { type: 'date'; date: string; wards: WardGroupData[] }
@@ -49,8 +43,6 @@ export class DashboardView extends LitElement {
   @state() private isPreviewOpen = false;
   @state() private previewMessage = '';
   @state() private isDeleteConfirmOpen = false;
-  @state() private isNoteActionSheetOpen = false;
-  @state() private selectedNote: Note | null = null;
 
   private notesSubscription: Subscription | null = null;
 
@@ -118,27 +110,8 @@ export class DashboardView extends LitElement {
     this.isActionSheetOpen = true;
   };
 
-  private handleNoteAction = (e: CustomEvent<{ note: Note }>) => {
-    this.selectedNote = e.detail.note;
-    this.selectedTitle = `${e.detail.note.bed}${e.detail.note.reference ? ` (${e.detail.note.reference})` : ''}`;
-    this.isNoteActionSheetOpen = true;
-  };
-
-  private handleNoteActionSelected = (e: CustomEvent<{ actionId: string }>) => {
-    const { actionId } = e.detail;
-
-    if (actionId === 'edit' && this.selectedNote) {
-      navigate(`/editar-nota/${this.selectedNote.id}`);
-      this.isNoteActionSheetOpen = false;
-    } else if (actionId === 'delete' && this.selectedNote) {
-      this.isNoteActionSheetOpen = false;
-      this.isDeleteConfirmOpen = true;
-    }
-  };
-
-  private handleNoteActionSheetClosed = () => {
-    this.isNoteActionSheetOpen = false;
-    this.selectedNote = null;
+  private handleNoteClick = (e: CustomEvent<{ note: Note }>) => {
+    navigate(`/editar-nota/${e.detail.note.id}`);
   };
 
   private handleActionSelected = async (e: CustomEvent<{ actionId: string }>) => {
@@ -226,11 +199,6 @@ export class DashboardView extends LitElement {
   };
 
   private getNoteIdsToDelete(): string[] {
-    // Se há uma nota individual selecionada
-    if (this.selectedNote) {
-      return [this.selectedNote.id];
-    }
-
     if (!this.selectedScope) return [];
 
     if (this.selectedScope.type === 'ward') {
@@ -258,14 +226,12 @@ export class DashboardView extends LitElement {
     } finally {
       this.isDeleteConfirmOpen = false;
       this.selectedScope = null;
-      this.selectedNote = null;
     }
   };
 
   private handleDeleteCancel = (): void => {
     this.isDeleteConfirmOpen = false;
     this.selectedScope = null;
-    this.selectedNote = null;
   };
 
   private showTemporaryToast(message: string): void {
@@ -302,7 +268,7 @@ export class DashboardView extends LitElement {
     const groupedNotes = groupNotesByDateAndWard(this.notes);
 
     return html`
-      <div class="d-flex flex-column gap-3" @note-action=${this.handleNoteAction}>
+      <div class="d-flex flex-column gap-3" @note-click=${this.handleNoteClick}>
         ${groupedNotes.map(
           group => html`
             <date-group
@@ -383,14 +349,6 @@ export class DashboardView extends LitElement {
         @sheet-closed=${this.handleSheetClosed}
       ></action-sheet>
 
-      <action-sheet
-        .visible=${this.isNoteActionSheetOpen}
-        .title=${this.selectedTitle}
-        .actions=${NOTE_ACTIONS}
-        @action-selected=${this.handleNoteActionSelected}
-        @sheet-closed=${this.handleNoteActionSheetClosed}
-      ></action-sheet>
-
       ${this.renderToast()} ${this.renderDeleteConfirm()}
     `;
   }
@@ -400,9 +358,7 @@ export class DashboardView extends LitElement {
 
     const count = this.getNoteIdsToDelete().length;
     let scopeLabel = '';
-    if (this.selectedNote) {
-      scopeLabel = 'desta nota';
-    } else if (this.selectedScope?.type === 'date') {
+    if (this.selectedScope?.type === 'date') {
       scopeLabel = 'desta data';
     } else if (this.selectedScope?.type === 'ward') {
       scopeLabel = 'desta ala';

@@ -25,15 +25,11 @@ export class NoteItem extends LitElement {
     );
   };
 
-  private handleActionClick = (e: Event) => {
-    e.stopPropagation();
-    this.dispatchEvent(
-      new CustomEvent('note-action', {
-        detail: { note: this.note },
-        bubbles: true,
-        composed: true,
-      })
-    );
+  private handleContentKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      this.handleContentClick();
+    }
   };
 
   override render() {
@@ -41,17 +37,18 @@ export class NoteItem extends LitElement {
 
     return html`
       <div class="list-group-item px-3 py-2">
-        <div class="d-flex align-items-center gap-2">
-          <div class="d-flex align-items-center gap-2 flex-grow-1 overflow-hidden" role="button" tabindex="0" @click=${this.handleContentClick}>
-            <span class="fw-semibold">${bed}</span>
-            ${reference ? html`<span class="text-secondary small">(${reference})</span>` : null}
-            <span class="text-secondary">|</span>
-            <span class="text-truncate">${note}</span>
-          </div>
-
-          <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" @click=${this.handleActionClick} aria-label="Ações da nota">
-            ⋯
-          </button>
+        <div
+          class="d-flex align-items-center gap-2 overflow-hidden"
+          role="button"
+          tabindex="0"
+          @click=${this.handleContentClick}
+          @keydown=${this.handleContentKeyDown}
+          aria-label="Editar nota do leito ${bed}"
+        >
+          <span class="fw-semibold">${bed}</span>
+          ${reference ? html`<span class="text-secondary small">(${reference})</span>` : null}
+          <span class="text-secondary">|</span>
+          <span class="text-truncate">${note}</span>
         </div>
       </div>
     `;

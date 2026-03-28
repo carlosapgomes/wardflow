@@ -6,7 +6,15 @@
 import { LitElement, html } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { navigate, getCurrentRoute } from '@/router/router';
-import { saveNote, updateNote, getNoteById, validateNoteInput, getUniqueWards, type CreateNoteInput } from '@/services/db/notes-service';
+import {
+  saveNote,
+  updateNote,
+  deleteNote,
+  getNoteById,
+  validateNoteInput,
+  getUniqueWards,
+  type CreateNoteInput,
+} from '@/services/db/notes-service';
 import { NOTE_CONSTANTS } from '@/models/note';
 
 @customElement('new-note-view')
@@ -17,6 +25,8 @@ export class NewNoteView extends LitElement {
   @state() private reference = '';
   @state() private note = '';
   @state() private saving = false;
+  @state() private deleting = false;
+  @state() private isDeleteConfirmOpen = false;
   @state() private wardSuggestions: string[] = [];
   @state() private loading = false;
   @state() private error = '';
@@ -115,8 +125,37 @@ export class NewNoteView extends LitElement {
     navigate('/dashboard');
   };
 
+  private handleDeleteRequest = () => {
+    this.isDeleteConfirmOpen = true;
+  };
+
+  private handleDeleteCancel = () => {
+    this.isDeleteConfirmOpen = false;
+  };
+
+  private handleDeleteConfirm = async () => {
+    if (!this.noteId) {
+      this.isDeleteConfirmOpen = false;
+      return;
+    }
+
+    this.deleting = true;
+    this.error = '';
+
+    try {
+      await deleteNote(this.noteId);
+      navigate('/dashboard');
+    } catch (err) {
+      this.error = err instanceof Error ? err.message : 'Erro ao excluir nota';
+    } finally {
+      this.deleting = false;
+      this.isDeleteConfirmOpen = false;
+    }
+  };
+
   override render() {
-    const canSave = !this.saving && this.ward && this.bed && this.note;
+    const isBusy = this.saving || this.deleting;
+    const canSave = !isBusy && this.ward && this.bed && this.note;
     const title = this.isEditMode ? 'Editar Nota' : 'Nova Nota';
     const saveLabel = this.saving ? 'Salvando...' : 'Salvar';
 
@@ -204,16 +243,61 @@ export class NewNoteView extends LitElement {
             ${this.error ? html`<div class="alert alert-danger py-2 px-3 mb-0 mt-3" role="alert">${this.error}</div>` : null}
           </div>
         </div>
+
+        ${this.isEditMode
+          ? html`
+              <div class="card border-0 shadow-sm mb-4">
+                <div class="card-body py-3">
+                  <button
+                    type="button"
+                    class="btn btn-outline-danger w-100"
+                    @click=${this.handleDeleteRequest}
+                    ?disabled=${isBusy}
+                  >
+                    Excluir nota
+                  </button>
+                </div>
+              </div>
+            `
+          : null}
       </main>
 
       <div class="wf-action-bar">
         <div class="container-fluid wf-page-container d-grid gap-2 d-sm-flex justify-content-end">
-          <button type="button" class="btn btn-outline-secondary" @click=${this.handleCancel} ?disabled=${this.saving}>
+          <button type="button" class="btn btn-outline-secondary" @click=${this.handleCancel} ?disabled=${isBusy}>
             Cancelar
           </button>
           <button type="button" class="btn btn-primary" @click=${this.handleSave} ?disabled=${!canSave}>
             ${saveLabel}
           </button>
+        </div>
+      </div>
+
+      ${this.renderDeleteConfirm()}
+    `;
+  }
+
+  private renderDeleteConfirm() {
+    if (!this.isDeleteConfirmOpen) return null;
+
+    return html`
+      <div class="modal-backdrop fade show"></div>
+      <div class="modal d-block" tabindex="-1" @click=${this.handleDeleteCancel}>
+        <div class="modal-dialog modal-dialog-centered modal-sm" @click=${(e: Event) => { e.stopPropagation(); }}>
+          <div class="modal-content border-0 shadow">
+            <div class="modal-body p-4">
+              <h3 class="h6 mb-2">Excluir nota?</h3>
+              <p class="text-secondary mb-3">Esta ação é permanente e não pode ser desfeita.</p>
+              <div class="d-grid gap-2 d-sm-flex justify-content-end">
+                <button type="button" class="btn btn-outline-secondary" @click=${this.handleDeleteCancel} ?disabled=${this.deleting}>
+                  Cancelar
+                </button>
+                <button type="button" class="btn btn-danger" @click=${this.handleDeleteConfirm} ?disabled=${this.deleting}>
+                  ${this.deleting ? 'Excluindo...' : 'Excluir'}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     `;
