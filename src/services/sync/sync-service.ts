@@ -326,6 +326,14 @@ export async function pullRemoteNotes(): Promise<void> {
     return;
   }
 
+  const shouldManageSyncState = !currentStatus.isSyncing;
+  if (shouldManageSyncState) {
+    currentStatus = { ...currentStatus, isSyncing: true };
+    notifySubscribers();
+  }
+
+  let pullError: string | null = null;
+
   try {
     const notesCollection = collection(firestore, 'users', user.uid, 'notes');
     const notesSnapshot = await getDocs(notesCollection);
@@ -384,7 +392,18 @@ export async function pullRemoteNotes(): Promise<void> {
 
     console.log(`[VisitaMed] Pull concluído: ${String(notesToUpsert.length)} notas importadas`);
   } catch (error) {
+    pullError = error instanceof Error ? error.message : 'Erro no pull de notas remotas';
     console.error('[VisitaMed] Erro no pull de notas remotas:', error);
+  } finally {
+    if (shouldManageSyncState) {
+      currentStatus = {
+        ...currentStatus,
+        isSyncing: false,
+        lastSyncAt: pullError ? currentStatus.lastSyncAt : new Date(),
+        error: pullError ?? currentStatus.error,
+      };
+      notifySubscribers();
+    }
   }
 }
 

@@ -85,7 +85,7 @@ export class SyncStatusBar extends LitElement {
       return html`
         <div class="d-flex align-items-center gap-2">
           <span class="spinner-border spinner-border-sm text-primary" role="status" aria-hidden="true"></span>
-          <span class="small">Sincronizando...</span>
+          <span class="small">Sincronizando notas...</span>
         </div>
       `;
     }
