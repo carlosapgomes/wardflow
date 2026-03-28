@@ -8,6 +8,8 @@ import { createNote, NOTE_CONSTANTS, type Note } from '@/models/note';
 import { createSyncQueueItem } from '@/models/sync-queue';
 import { isNoteActive } from '@/utils/note-expiration';
 import { getAuthState } from '@/services/auth/auth-service';
+import { recordWardUsage, getWardSuggestions } from './ward-stats-service';
+import { normalizeWardKey } from '@/models/ward-stat';
 
 export interface CreateNoteInput {
   ward: string;
@@ -68,6 +70,9 @@ export async function saveNote(input: CreateNoteInput): Promise<Note> {
     await db.notes.add(note);
     await queueNoteForSyncInTransaction('create', note);
   });
+
+  // Registra uso da ala após salvar
+  await recordWardUsage(input.ward);
 
   return note;
 }
@@ -143,6 +148,22 @@ export async function getUniqueWards(): Promise<string[]> {
 }
 
 /**
+ * Obtém sugestões de alas com fallback
+ * Prioriza stats locais (frequência + recência)
+ * Fallback para notas ativas se não há stats
+ */
+export async function getWardSuggestionsWithFallback(): Promise<string[]> {
+  const suggestions = await getWardSuggestions();
+
+  if (suggestions.length > 0) {
+    return suggestions;
+  }
+
+  // Fallback: notas ativas ordenadas alfabeticamente
+  return getUniqueWards();
+}
+
+/**
  * Valida se os campos obrigatórios estão preenchidos
  */
 export function validateNoteInput(input: CreateNoteInput): boolean {
@@ -209,6 +230,7 @@ export async function deleteNotes(noteIds: string[]): Promise<void> {
 /**
  * Atualiza uma nota existente
  * Valida que a nota pertence ao usuário atual
+ * Registra uso da ala se houver mudança
  */
 export async function updateNote(
   noteId: string,
@@ -217,15 +239,20 @@ export async function updateNote(
   const userId = requireUserId();
   const updatedAt = new Date();
 
+  // Busca nota existente para verificar mudança de ala
+  const existingNote = await db.notes.get(noteId);
+  if (!existingNote) {
+    throw new Error('Nota não encontrada');
+  }
+  validateOwnership(existingNote, userId);
+
+  // Verifica se ala mudou e captura o novo valor
+  const newWardValue = updates.ward;
+  const wardChanged =
+    newWardValue !== undefined &&
+    normalizeWardKey(existingNote.ward) !== normalizeWardKey(newWardValue);
+
   await db.transaction('rw', db.notes, db.syncQueue, async () => {
-    const existingNote = await db.notes.get(noteId);
-
-    if (!existingNote) {
-      throw new Error('Nota não encontrada');
-    }
-
-    validateOwnership(existingNote, userId);
-
     await db.notes.update(noteId, {
       ...updates,
       updatedAt,
@@ -234,10 +261,13 @@ export async function updateNote(
 
     const updatedNote = await db.notes.get(noteId);
 
-    if (!updatedNote) {
-      return;
+    if (updatedNote) {
+      await queueNoteForSyncInTransaction('update', updatedNote);
     }
-
-    await queueNoteForSyncInTransaction('update', updatedNote);
   });
+
+  // Registra uso se ala mudou
+  if (wardChanged) {
+    await recordWardUsage(newWardValue);
+  }
 }
