@@ -1,5 +1,11 @@
 {
   "projects": {
     "default": "visitamed-36570"
-  }
+  },
+  "targets": {
+    "visitamed-36570": {
+      "hosting": {}
+    }
+  },
+  "etags": {}
 }

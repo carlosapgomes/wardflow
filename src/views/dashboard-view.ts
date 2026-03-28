@@ -5,6 +5,7 @@
 
 import { LitElement, html } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
+import { liveQuery, type Subscription } from 'dexie';
 import { navigate } from '@/router/router';
 import { getAllNotes, deleteNotes } from '@/services/db/notes-service';
 import { groupNotesByDateAndWard } from '@/utils/group-notes-by-date-and-ward';
@@ -51,25 +52,38 @@ export class DashboardView extends LitElement {
   @state() private isNoteActionSheetOpen = false;
   @state() private selectedNote: Note | null = null;
 
+  private notesSubscription: Subscription | null = null;
+
   protected override createRenderRoot(): HTMLElement {
     return this;
   }
 
   override connectedCallback(): void {
     super.connectedCallback();
-    void this.loadNotes();
+    this.startNotesSubscription();
   }
 
-  private async loadNotes(): Promise<void> {
-    try {
-      this.isLoading = true;
-      this.notes = await getAllNotes();
-    } catch (error) {
-      console.error('Erro ao carregar notas:', error);
-      this.notes = [];
-    } finally {
-      this.isLoading = false;
-    }
+  override disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this.notesSubscription?.unsubscribe();
+    this.notesSubscription = null;
+  }
+
+  private startNotesSubscription(): void {
+    this.isLoading = true;
+
+    this.notesSubscription?.unsubscribe();
+    this.notesSubscription = liveQuery(() => getAllNotes()).subscribe({
+      next: (notes) => {
+        this.notes = notes;
+        this.isLoading = false;
+      },
+      error: (error) => {
+        console.error('Erro ao carregar notas:', error);
+        this.notes = [];
+        this.isLoading = false;
+      },
+    });
   }
 
   private handleFabClick = () => {
@@ -238,7 +252,6 @@ export class DashboardView extends LitElement {
     try {
       await deleteNotes(noteIds);
       this.showTemporaryToast(`${String(noteIds.length)} nota(s) excluída(s)`);
-      await this.loadNotes();
     } catch (error) {
       console.error('Erro ao excluir notas:', error);
       this.showTemporaryToast('Erro ao excluir notas');
