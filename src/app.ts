@@ -25,6 +25,7 @@ import './components/layout/app-header';
 import './views/dashboard-view';
 import './views/new-note-view';
 import './views/login-view';
+import './views/settings-view';
 
 @customElement('visitamed-app')
 export class VisitaMedApp extends LitElement {
@@ -146,6 +147,9 @@ export class VisitaMedApp extends LitElement {
         break;
       case 'login-view':
         view = html`<login-view></login-view>`;
+        break;
+      case 'settings-view':
+        view = html`<settings-view></settings-view>`;
         break;
       default:
         view = html`<dashboard-view></dashboard-view>`;

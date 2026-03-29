@@ -16,6 +16,7 @@ import {
   type CreateNoteInput,
 } from '@/services/db/notes-service';
 import { NOTE_CONSTANTS } from '@/models/note';
+import { applyInputCase, getInputPreferences } from '@/services/settings/settings-service';
 
 @customElement('new-note-view')
 export class NewNoteView extends LitElement {
@@ -28,6 +29,8 @@ export class NewNoteView extends LitElement {
   @state() private deleting = false;
   @state() private isDeleteConfirmOpen = false;
   @state() private wardSuggestions: string[] = [];
+  @state() private uppercaseWard = false;
+  @state() private uppercaseBed = true;
   @state() private loading = false;
   @state() private error = '';
 
@@ -42,8 +45,16 @@ export class NewNoteView extends LitElement {
   override async connectedCallback(): Promise<void> {
     super.connectedCallback();
 
-    // Carrega sugestões de alas (stats locais + fallback)
+    // Carrega sugestões de alas e preferências de input
     this.wardSuggestions = await getWardSuggestionsWithFallback();
+
+    try {
+      const inputPreferences = await getInputPreferences();
+      this.uppercaseWard = inputPreferences.uppercaseWard;
+      this.uppercaseBed = inputPreferences.uppercaseBed;
+    } catch {
+      // mantém defaults seguros
+    }
 
     // Verifica se há um ID na rota (modo edição)
     const route = getCurrentRoute();
@@ -76,11 +87,13 @@ export class NewNoteView extends LitElement {
   }
 
   private handleWardInput = (e: Event) => {
-    this.ward = (e.target as HTMLInputElement).value;
+    const value = (e.target as HTMLInputElement).value;
+    this.ward = applyInputCase(value, this.uppercaseWard);
   };
 
   private handleBedInput = (e: Event) => {
-    this.bed = (e.target as HTMLInputElement).value.toUpperCase();
+    const value = (e.target as HTMLInputElement).value;
+    this.bed = applyInputCase(value, this.uppercaseBed);
   };
 
   private handleReferenceInput = (e: Event) => {
@@ -187,6 +200,8 @@ export class NewNoteView extends LitElement {
                 @input=${this.handleWardInput}
                 placeholder="Ex: UTI, Enfermaria A"
                 autocomplete="off"
+                autocapitalize=${this.uppercaseWard ? 'characters' : 'words'}
+                style=${this.uppercaseWard ? 'text-transform: uppercase' : ''}
               />
 
               <datalist id="ward-suggestions">
@@ -204,8 +219,8 @@ export class NewNoteView extends LitElement {
                 @input=${this.handleBedInput}
                 placeholder="Ex: 01, 02A"
                 autocomplete="off"
-                autocapitalize="characters"
-                style="text-transform: uppercase"
+                autocapitalize=${this.uppercaseBed ? 'characters' : 'words'}
+                style=${this.uppercaseBed ? 'text-transform: uppercase' : ''}
               />
             </div>
 
