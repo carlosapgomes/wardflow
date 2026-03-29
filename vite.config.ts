@@ -49,6 +49,9 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // Evita que o SW faça fallback de navegação em rotas internas do Firebase Auth
+        // (ex.: /__/auth/handler), que podem quebrar o fluxo de login em PWA instalado.
+        navigateFallbackDenylist: [/^\/__\//],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
