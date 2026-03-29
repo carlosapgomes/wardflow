@@ -12,7 +12,7 @@ import {
   deleteNote,
   getNoteById,
   validateNoteInput,
-  getUniqueWards,
+  getWardSuggestionsWithFallback,
   type CreateNoteInput,
 } from '@/services/db/notes-service';
 import { NOTE_CONSTANTS } from '@/models/note';
@@ -42,8 +42,8 @@ export class NewNoteView extends LitElement {
   override async connectedCallback(): Promise<void> {
     super.connectedCallback();
 
-    // Carrega sugestões de alas
-    this.wardSuggestions = await getUniqueWards();
+    // Carrega sugestões de alas (stats locais + fallback)
+    this.wardSuggestions = await getWardSuggestionsWithFallback();
 
     // Verifica se há um ID na rota (modo edição)
     const route = getCurrentRoute();

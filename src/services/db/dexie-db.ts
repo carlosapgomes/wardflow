@@ -7,6 +7,7 @@ import Dexie, { type EntityTable } from 'dexie';
 import type { Note } from '@/models/note';
 import type { Settings } from '@/models/settings';
 import type { SyncQueueItem } from '@/models/sync-queue';
+import type { WardStat } from '@/models/ward-stat';
 
 /**
  * Classe principal do banco de dados
@@ -15,6 +16,7 @@ class VisitaMedDB extends Dexie {
   notes!: EntityTable<Note, 'id'>;
   settings!: EntityTable<Settings, 'id'>;
   syncQueue!: EntityTable<SyncQueueItem, 'id'>;
+  wardStats!: EntityTable<WardStat, 'id'>;
 
   constructor() {
     super('VisitaMedDB');
@@ -41,19 +43,32 @@ class VisitaMedDB extends Dexie {
         // Limpa fila existente (greenfield, sem risco de dados críticos)
         await tx.table('syncQueue').clear();
       });
+
+    this.version(3)
+      .stores({
+        notes: 'id, userId, date, ward, syncStatus, expiresAt',
+        settings: 'id, userId',
+        syncQueue: 'id, userId, entityType, entityId, createdAt',
+        // Ward stats: userId para listar, wardKey para busca
+        wardStats: 'id, userId, wardKey, lastUsedAt',
+      })
+      .upgrade(async (_tx) => {
+        // Greenfield - sem dados para migrar
+      });
   }
 }
 
 export const db = new VisitaMedDB();
 
 /**
- * Limpa dados locais do usuário (notes + syncQueue)
+ * Limpa dados locais do usuário (notes + syncQueue + wardStats)
  * Usado no logout para evitar dados órfãos em dispositivo compartilhado
  */
 export async function clearLocalUserData(): Promise<void> {
-  await db.transaction('rw', [db.notes, db.syncQueue], async () => {
+  await db.transaction('rw', [db.notes, db.syncQueue, db.wardStats], async () => {
     await db.notes.clear();
     await db.syncQueue.clear();
+    await db.wardStats.clear();
   });
 }
 

@@ -1,4 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="#2563eb">
-  <rect width="32" height="32" rx="4" fill="#2563eb"/>
-  <text x="16" y="22" font-size="16" font-family="system-ui, sans-serif" font-weight="bold" text-anchor="middle" fill="white">WF</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="VisitaMed">
+  <rect width="32" height="32" rx="6.5" fill="#2563eb" />
+  <g fill="none" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6 8L11 24L16 8" />
+    <path d="M18 24V8L24 24L30 8V24" />
+  </g>
 </svg>
