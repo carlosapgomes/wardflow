@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="VisitaMed dark">
+  <rect width="32" height="32" rx="6.5" fill="#0b1220" />
+  <g fill="none" stroke="#60a5fa" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6 8L11 24L16 8" />
+    <path d="M18 24V8L24 24L30 8V24" />
+  </g>
+</svg>
