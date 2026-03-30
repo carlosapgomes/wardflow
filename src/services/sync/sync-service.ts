@@ -9,12 +9,14 @@ import { db } from '@/services/db/dexie-db';
 import type { Note } from '@/models/note';
 import type { SyncQueueItem } from '@/models/sync-queue';
 import type { WardStat } from '@/models/ward-stat';
+import { normalizeSettings, SETTINGS_ID, type Settings } from '@/models/settings';
 import { getFirebaseFirestore } from '@/services/auth/firebase';
 import { getAuthState } from '@/services/auth/auth-service';
 import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   setDoc,
   updateDoc,
@@ -187,19 +189,17 @@ export async function syncNow(): Promise<void> {
  * Processa um item da fila de sincronização
  */
 async function processSyncItem(item: SyncQueueItem, firestore: Firestore): Promise<void> {
-  // Processa notas
-  if (item.entityType === 'note') {
-    await processNoteSyncItem(item, firestore);
-    return;
+  switch (item.entityType) {
+    case 'note':
+      await processNoteSyncItem(item, firestore);
+      return;
+    case 'wardStat':
+      await processWardStatSyncItem(item, firestore);
+      return;
+    case 'settings':
+      await processSettingsSyncItem(item, firestore);
+      return;
   }
-
-  // Processa wardStats
-  if (item.entityType === 'wardStat') {
-    await processWardStatSyncItem(item, firestore);
-    return;
-  }
-
-  throw new Error(`Tipo de entidade não suportado: ${item.entityType}`);
 }
 
 /**
@@ -239,6 +239,64 @@ async function processNoteSyncItem(item: SyncQueueItem, firestore: Firestore): P
       syncedAt: new Date(),
     });
   }
+}
+
+/**
+ * Payload do sync de settings
+ */
+interface SettingsSyncPayload {
+  inputPreferences: {
+    uppercaseWard: boolean;
+    uppercaseBed: boolean;
+  };
+  wardPreferences: {
+    hiddenWardKeys: string[];
+    labelOverrides: Record<string, string>;
+  };
+  updatedAt: string;
+}
+
+/**
+ * Processa sync de settings
+ */
+async function processSettingsSyncItem(item: SyncQueueItem, firestore: Firestore): Promise<void> {
+  let payload: SettingsSyncPayload;
+
+  try {
+    payload = JSON.parse(item.payload) as SettingsSyncPayload;
+  } catch {
+    throw new Error('Payload inválido na fila de sincronização de settings');
+  }
+
+  const settingsRef = doc(firestore, 'users', item.userId, 'settings', SETTINGS_ID);
+
+  if (item.operation === 'delete') {
+    await deleteDoc(settingsRef);
+    return;
+  }
+
+  await setDoc(
+    settingsRef,
+    {
+      ...payload,
+      userId: item.userId,
+      updatedAt: payload.updatedAt,
+    },
+    { merge: true }
+  );
+
+  await db.settings.put(
+    normalizeSettings(
+      {
+        id: SETTINGS_ID,
+        userId: item.userId,
+        inputPreferences: payload.inputPreferences,
+        wardPreferences: payload.wardPreferences,
+        updatedAt: payload.updatedAt,
+      },
+      item.userId
+    )
+  );
 }
 
 /**
@@ -338,6 +396,8 @@ async function syncIfAuthenticated(): Promise<void> {
 
   await syncNow();
   await pullRemoteNotes();
+  await pullRemoteWardStats();
+  await pullRemoteSettings();
 }
 
 /**
@@ -761,5 +821,99 @@ export async function pullRemoteWardStats(): Promise<void> {
   // Log de erro se houver (não atualiza status global para não sobrescrever info de notas)
   if (pullError) {
     console.warn('[VisitaMed] Erro no pull de wardStats:', pullError);
+  }
+}
+
+// ============================================================================
+// Settings - Pull e Merge
+// ============================================================================
+
+interface FirestoreSettingsData {
+  inputPreferences?: {
+    uppercaseWard?: boolean;
+    uppercaseBed?: boolean;
+  };
+  wardPreferences?: {
+    hiddenWardKeys?: string[];
+    labelOverrides?: Record<string, string>;
+  };
+  updatedAt?: unknown;
+  userId?: string;
+}
+
+async function hasPendingSettingsSync(userId: string): Promise<boolean> {
+  const pending = await db.syncQueue
+    .where('userId')
+    .equals(userId)
+    .and((item) => item.entityType === 'settings' && item.entityId === SETTINGS_ID)
+    .count();
+
+  return pending > 0;
+}
+
+export function resolveSettingsConflict(
+  local: Settings | undefined,
+  remoteData: FirestoreSettingsData,
+  userId: string,
+  pendingLocal: boolean
+): Settings {
+  const remoteUpdatedAt = convertTimestampToDate(remoteData.updatedAt) ?? new Date();
+  const remote = normalizeSettings(
+    {
+      id: SETTINGS_ID,
+      userId,
+      inputPreferences: remoteData.inputPreferences,
+      wardPreferences: remoteData.wardPreferences,
+      updatedAt: remoteUpdatedAt,
+    },
+    userId
+  );
+
+  if (!local) {
+    return remote;
+  }
+
+  if (pendingLocal) {
+    return local;
+  }
+
+  return remote.updatedAt > local.updatedAt ? remote : local;
+}
+
+export async function pullRemoteSettings(): Promise<void> {
+  const { user, loading } = getAuthState();
+
+  if (loading || !user) {
+    return;
+  }
+
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return;
+  }
+
+  const firestore = getFirebaseFirestore();
+
+  if (!firestore) {
+    console.warn('[VisitaMed] Firestore não configurado');
+    return;
+  }
+
+  try {
+    const settingsRef = doc(firestore, 'users', user.uid, 'settings', SETTINGS_ID);
+    const settingsSnap = await getDoc(settingsRef);
+
+    if (!settingsSnap.exists()) {
+      return;
+    }
+
+    const remoteData = settingsSnap.data() as FirestoreSettingsData;
+    const localRaw = await db.settings.get(SETTINGS_ID);
+    const local = localRaw?.userId === user.uid ? normalizeSettings(localRaw, user.uid) : undefined;
+    const pendingLocal = await hasPendingSettingsSync(user.uid);
+
+    const resolved = resolveSettingsConflict(local, remoteData, user.uid, pendingLocal);
+    await db.settings.put(resolved);
+  } catch (error) {
+    console.warn('[VisitaMed] Erro no pull de settings:', error);
   }
 }

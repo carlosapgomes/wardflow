@@ -58,7 +58,7 @@ export class LoginView extends LitElement {
           <div class="card border-0 shadow-sm w-100">
             <div class="card-body p-4 p-sm-5 text-center">
               <h1 class="h3 text-primary mb-2">VisitaMed</h1>
-              <p class="text-secondary mb-4">Notas clínicas para rounds hospitalares</p>
+              <p class="text-secondary mb-4">Anotações rápidas durante a visita</p>
 
               <button class="btn btn-outline-secondary w-100 d-flex align-items-center justify-content-center gap-2" @click=${this.handleLogin} ?disabled=${this.isLoading}>
                 <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">

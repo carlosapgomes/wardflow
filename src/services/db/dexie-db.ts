@@ -61,12 +61,13 @@ class VisitaMedDB extends Dexie {
 export const db = new VisitaMedDB();
 
 /**
- * Limpa dados locais do usuário (notes + syncQueue + wardStats)
+ * Limpa dados locais do usuário (notes + settings + syncQueue + wardStats)
  * Usado no logout para evitar dados órfãos em dispositivo compartilhado
  */
 export async function clearLocalUserData(): Promise<void> {
-  await db.transaction('rw', [db.notes, db.syncQueue, db.wardStats], async () => {
+  await db.transaction('rw', [db.notes, db.settings, db.syncQueue, db.wardStats], async () => {
     await db.notes.clear();
+    await db.settings.clear();
     await db.syncQueue.clear();
     await db.wardStats.clear();
   });

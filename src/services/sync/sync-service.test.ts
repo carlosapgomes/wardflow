@@ -22,6 +22,10 @@ vi.mock('@/services/db/dexie-db', () => ({
       where: vi.fn(() => ({
         equals: vi.fn().mockReturnThis(),
         sortBy: vi.fn().mockResolvedValue([]),
+        and: vi.fn().mockReturnThis(),
+        toArray: vi.fn().mockResolvedValue([]),
+        count: vi.fn().mockResolvedValue(0),
+        delete: vi.fn().mockResolvedValue(undefined),
       })),
       add: vi.fn(),
       update: vi.fn(),
@@ -32,6 +36,12 @@ vi.mock('@/services/db/dexie-db', () => ({
       get: vi.fn(),
       add: vi.fn(),
       update: vi.fn(),
+      bulkPut: vi.fn(),
+    },
+    settings: {
+      get: vi.fn(),
+      put: vi.fn(),
+      clear: vi.fn(),
     },
   },
 }));
@@ -53,6 +63,7 @@ vi.mock('firebase/firestore', () => ({
   setDoc: vi.fn(),
   updateDoc: vi.fn(),
   deleteDoc: vi.fn(),
+  getDoc: vi.fn(),
   getDocs: vi.fn(),
   increment: vi.fn((n: number) => n), // Mock do increment
 }));
@@ -473,5 +484,82 @@ describe('sync-service - resolveWardStatConflict', () => {
     const result = syncService.resolveWardStatConflict(local as WardStat, remote, pendingWardKeys);
 
     expect(result.usageCount).toBe(10);
+  });
+});
+
+describe('sync-service - resolveSettingsConflict', () => {
+  const makeLocalSettings = (updatedAtIso: string) => ({
+    id: 'user-settings' as const,
+    userId: 'user-123',
+    inputPreferences: {
+      uppercaseWard: true,
+      uppercaseBed: true,
+    },
+    wardPreferences: {
+      hiddenWardKeys: ['UTI'],
+      labelOverrides: {
+        UTI: 'UTI Adulto',
+      },
+    },
+    updatedAt: new Date(updatedAtIso),
+  });
+
+  it('deve usar remoto quando não existe local', () => {
+    const remoteData = {
+      inputPreferences: {
+        uppercaseWard: false,
+        uppercaseBed: true,
+      },
+      wardPreferences: {
+        hiddenWardKeys: [],
+        labelOverrides: {},
+      },
+      updatedAt: '2026-03-28T10:00:00.000Z',
+    };
+
+    const result = syncService.resolveSettingsConflict(undefined, remoteData, 'user-123', false);
+
+    expect(result.inputPreferences.uppercaseWard).toBe(false);
+  });
+
+  it('deve preservar local quando há pendência local', () => {
+    const local = makeLocalSettings('2026-03-28T09:00:00.000Z');
+    const remoteData = {
+      inputPreferences: {
+        uppercaseWard: false,
+        uppercaseBed: false,
+      },
+      wardPreferences: {
+        hiddenWardKeys: [],
+        labelOverrides: {},
+      },
+      updatedAt: '2026-03-28T10:00:00.000Z',
+    };
+
+    const result = syncService.resolveSettingsConflict(local, remoteData, 'user-123', true);
+
+    expect(result).toEqual(local);
+  });
+
+  it('deve usar o payload mais recente quando não há pendência', () => {
+    const local = makeLocalSettings('2026-03-28T09:00:00.000Z');
+    const remoteData = {
+      inputPreferences: {
+        uppercaseWard: false,
+        uppercaseBed: false,
+      },
+      wardPreferences: {
+        hiddenWardKeys: [],
+        labelOverrides: {},
+      },
+      updatedAt: '2026-03-28T10:00:00.000Z',
+    };
+
+    const result = syncService.resolveSettingsConflict(local, remoteData, 'user-123', false);
+
+    expect(result.inputPreferences).toEqual({
+      uppercaseWard: false,
+      uppercaseBed: false,
+    });
   });
 });

@@ -9,7 +9,14 @@ import { initializeRouter, subscribeToRoute, getCurrentRoute, navigate, type Rou
 import { initializeAuth, subscribeToAuth, type AuthState } from '@/services/auth/auth-service';
 import { initializeTheme } from '@/services/theme/theme-service';
 import { cleanExpiredNotes } from '@/services/db/dexie-db';
-import { cleanupSync, initializeSync, pullRemoteNotes, pullRemoteWardStats, syncNow } from '@/services/sync/sync-service';
+import {
+  cleanupSync,
+  initializeSync,
+  pullRemoteNotes,
+  pullRemoteSettings,
+  pullRemoteWardStats,
+  syncNow,
+} from '@/services/sync/sync-service';
 
 // Import layout components
 import './components/layout/app-header';
@@ -18,6 +25,7 @@ import './components/layout/app-header';
 import './views/dashboard-view';
 import './views/new-note-view';
 import './views/login-view';
+import './views/settings-view';
 
 @customElement('visitamed-app')
 export class VisitaMedApp extends LitElement {
@@ -116,6 +124,7 @@ export class VisitaMedApp extends LitElement {
     await syncNow();
     await pullRemoteNotes();
     await pullRemoteWardStats();
+    await pullRemoteSettings();
   }
 
   override render() {
@@ -138,6 +147,9 @@ export class VisitaMedApp extends LitElement {
         break;
       case 'login-view':
         view = html`<login-view></login-view>`;
+        break;
+      case 'settings-view':
+        view = html`<settings-view></settings-view>`;
         break;
       default:
         view = html`<dashboard-view></dashboard-view>`;

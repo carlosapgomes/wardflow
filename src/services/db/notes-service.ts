@@ -10,6 +10,7 @@ import { isNoteActive } from '@/utils/note-expiration';
 import { getAuthState } from '@/services/auth/auth-service';
 import { getWardSuggestions } from './ward-stats-service';
 import { createWardStatId, normalizeWardKey, normalizeWardLabel, type WardStat } from '@/models/ward-stat';
+import { applyWardPreferencesToLabels, getUserSettings } from '@/services/settings/settings-service';
 
 export interface CreateNoteInput {
   ward: string;
@@ -239,13 +240,15 @@ export async function getUniqueWards(): Promise<string[]> {
  */
 export async function getWardSuggestionsWithFallback(): Promise<string[]> {
   const suggestions = await getWardSuggestions();
+  const fallbackSuggestions = suggestions.length > 0 ? suggestions : await getUniqueWards();
 
-  if (suggestions.length > 0) {
-    return suggestions;
+  try {
+    const settings = await getUserSettings();
+    return applyWardPreferencesToLabels(fallbackSuggestions, settings.wardPreferences);
+  } catch {
+    // Fallback seguro para contexto sem usuário autenticado
+    return fallbackSuggestions;
   }
-
-  // Fallback: notas ativas ordenadas alfabeticamente
-  return getUniqueWards();
 }
 
 /**
