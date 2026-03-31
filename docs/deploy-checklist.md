@@ -1,4 +1,4 @@
-# Deploy Checklist — WardFlow
+# Deploy Checklist — VisitaMed
 
  checklist operacional para deploys em produção.
 
@@ -132,9 +132,9 @@ firebase functions:log --only firestore
 
 ## 🔗 Links Úteis
 
-- [Firebase Console](https://console.firebase.google.com/project/wardflow-app)
-- [Firebase Hosting](https://console.firebase.google.com/project/wardflow-app/hosting)
-- [Firebase Auth](https://console.firebase.google.com/project/wardflow-app/authentication/users)
+- [Firebase Console](https://console.firebase.google.com/project/visitamed-36570)
+- [Firebase Hosting](https://console.firebase.google.com/project/visitamed-36570/hosting)
+- [Firebase Auth](https://console.firebase.google.com/project/visitamed-36570/authentication/users)
 
 ---
 

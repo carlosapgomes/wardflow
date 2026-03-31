@@ -1,4 +1,4 @@
-# WardFlow
+# VisitaMed
 
 PWA mobile-first para médicos registrarem notas transitórias durante rounds clínicos.
 
