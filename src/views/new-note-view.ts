@@ -15,6 +15,8 @@ import {
   getWardSuggestionsWithFallback,
   type CreateNoteInput,
 } from '@/services/db/notes-service';
+import { getCurrentUserVisitMember } from '@/services/db/visit-members-service';
+import { canEditNote } from '@/services/auth/visit-permissions';
 import { NOTE_CONSTANTS } from '@/models/note';
 import { applyInputCase, getInputPreferences } from '@/services/settings/settings-service';
 
@@ -34,6 +36,8 @@ export class NewNoteView extends LitElement {
   @state() private uppercaseBed = true;
   @state() private loading = false;
   @state() private error = '';
+  @state() private canEdit = false;
+  @state() private permissionChecked = false;
 
   private get isEditMode(): boolean {
     return this.noteId !== null;
@@ -61,10 +65,24 @@ export class NewNoteView extends LitElement {
     const route = getCurrentRoute();
     if (route?.params['visitId']) {
       this.visitId = route.params['visitId'];
+      await this.checkPermissions();
     }
     if (route?.params['id']) {
       this.noteId = route.params['id'];
       await this.loadNote();
+    }
+  }
+
+  private async checkPermissions(): Promise<void> {
+    if (!this.visitId) return;
+
+    try {
+      const member = await getCurrentUserVisitMember(this.visitId);
+      this.canEdit = member ? canEditNote(member) : false;
+    } catch {
+      this.canEdit = false;
+    } finally {
+      this.permissionChecked = true;
     }
   }
 
@@ -109,6 +127,11 @@ export class NewNoteView extends LitElement {
   };
 
   private handleSave = async () => {
+    if (!this.canEdit) {
+      this.error = 'Sem permissão para editar esta visita';
+      return;
+    }
+
     if (!this.visitId) {
       this.error = 'Visita não encontrada';
       return;
@@ -161,6 +184,12 @@ export class NewNoteView extends LitElement {
   };
 
   private handleDeleteConfirm = async () => {
+    if (!this.canEdit) {
+      this.error = 'Sem permissão para excluir esta nota';
+      this.isDeleteConfirmOpen = false;
+      return;
+    }
+
     if (!this.noteId) {
       this.isDeleteConfirmOpen = false;
       return;
@@ -189,6 +218,38 @@ export class NewNoteView extends LitElement {
     const canSave = !isBusy && this.ward && this.bed && this.note;
     const title = this.isEditMode ? 'Editar Nota' : 'Nova Nota';
     const saveLabel = this.saving ? 'Salvando...' : 'Salvar';
+
+    if (!this.permissionChecked) {
+      return html`
+        <app-header title=${title}></app-header>
+        <main class="container-fluid wf-page-container wf-with-header pb-4">
+          <div class="d-flex align-items-center justify-content-center text-secondary" style="min-height: 50vh;">
+            Verificando permissões...
+          </div>
+        </main>
+      `;
+    }
+
+    if (!this.canEdit) {
+      return html`
+        <app-header title=${title}></app-header>
+        <main class="container-fluid wf-page-container wf-with-header pb-4">
+          <div class="d-flex flex-column align-items-center justify-content-center text-center" style="min-height: 50vh;">
+            <div class="mb-4">
+              <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" viewBox="0 0 16 16" class="text-secondary">
+                <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                <path d="M7.002 11a1 1 0 1 1 2 0 1 1 0 0 1-2 0zM7.1 4.995a.905.905 0 1 1 1.8 0l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 4.995z"/>
+              </svg>
+            </div>
+            <h5 class="text-dark mb-2">Sem permissão para editar</h5>
+            <p class="text-secondary mb-4">Você não tem permissão para editar ou criar notas nesta visita.</p>
+            <button type="button" class="btn btn-outline-secondary" @click=${() => { navigate(`/visita/${this.visitId ?? ''}`); }}>
+              Voltar para a visita
+            </button>
+          </div>
+        </main>
+      `;
+    }
 
     if (this.loading) {
       return html`
