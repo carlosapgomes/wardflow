@@ -11,7 +11,7 @@ export default defineConfig({
         id: '/',
         name: 'VisitaMed',
         short_name: 'VisitaMed',
-        description: 'Notas transitórias para rounds clínicos',
+        description: 'VisitaMed - Notas transitórias para rounds clínicos',
         lang: 'pt-BR',
         theme_color: '#2563eb',
         background_color: '#ffffff',
