@@ -22,6 +22,7 @@ import {
 import './components/layout/app-header';
 
 // Import views
+import './views/visits-view';
 import './views/dashboard-view';
 import './views/new-note-view';
 import './views/login-view';
@@ -139,6 +140,9 @@ export class VisitaMedApp extends LitElement {
 
     let view;
     switch (this.currentComponent) {
+      case 'visits-view':
+        view = html`<visits-view></visits-view>`;
+        break;
       case 'dashboard-view':
         view = html`<dashboard-view></dashboard-view>`;
         break;
@@ -152,7 +156,7 @@ export class VisitaMedApp extends LitElement {
         view = html`<settings-view></settings-view>`;
         break;
       default:
-        view = html`<dashboard-view></dashboard-view>`;
+        view = html`<visits-view></visits-view>`;
     }
 
     return html`${view}`;

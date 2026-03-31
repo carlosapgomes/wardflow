@@ -10,6 +10,9 @@ export interface Note {
   /** ID do usuário que criou a nota */
   userId: string;
 
+  /** ID da visita à qual a nota pertence */
+  visitId: string;
+
   /** Data do atendimento (YYYY-MM-DD) */
   date: string;
 
@@ -68,6 +71,7 @@ export function createNote(partial: Partial<Note>): Note {
   return {
     id: crypto.randomUUID(),
     userId: '',
+    visitId: '',
     date: now.toISOString().split('T')[0] ?? '',
     ward: '',
     bed: '',

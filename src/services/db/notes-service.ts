@@ -13,6 +13,7 @@ import { createWardStatId, normalizeWardKey, normalizeWardLabel, type WardStat }
 import { applyWardPreferencesToLabels, getUserSettings } from '@/services/settings/settings-service';
 
 export interface CreateNoteInput {
+  visitId: string;
   ward: string;
   bed: string;
   note: string;
@@ -144,6 +145,7 @@ export async function saveNote(input: CreateNoteInput): Promise<Note> {
 
   const note = createNote({
     userId,
+    visitId: input.visitId,
     ward: input.ward.trim(),
     bed: input.bed.trim(),
     note: input.note.trim(),
@@ -164,10 +166,10 @@ export async function saveNote(input: CreateNoteInput): Promise<Note> {
 }
 
 /**
- * Busca todas as notas do usuário atual, não expiradas
+ * Busca todas as notas do usuário atual para uma visita específica, não expiradas
  * Ordenadas por createdAt descendente (mais recentes primeiro)
  */
-export async function getAllNotes(): Promise<Note[]> {
+export async function getAllNotes(visitId: string): Promise<Note[]> {
   const { user } = getAuthState();
 
   // Se não há usuário, retorna lista vazia
@@ -177,9 +179,9 @@ export async function getAllNotes(): Promise<Note[]> {
 
   const now = new Date();
   const notes = await db.notes
-    .where('userId')
-    .equals(user.uid)
-    .filter((note) => isNoteActive(note, now))
+    .where('visitId')
+    .equals(visitId)
+    .filter((note) => note.userId === user.uid && isNoteActive(note, now))
     .reverse()
     .sortBy('createdAt');
 

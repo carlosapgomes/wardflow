@@ -16,6 +16,7 @@ function createTestNote(expiresAt: Date): Note {
     date: '2024-03-25',
     ward: 'UTI',
     bed: '01',
+      visitId: 'visit-1',
     note: 'Test note',
     createdAt: new Date(),
     expiresAt,

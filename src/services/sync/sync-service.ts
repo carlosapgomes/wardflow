@@ -541,6 +541,7 @@ export async function pullRemoteNotes(): Promise<void> {
  * Usa unknown para permitir qualquer formato de timestamp
  */
 interface FirestoreNoteData {
+  visitId: string | null;
   date: string | null;
   ward: string | null;
   bed: string | null;
@@ -603,6 +604,7 @@ function convertFirestoreNoteToLocal(
   return {
     id,
     userId,
+    visitId: data.visitId ?? '',
     date: data.date ?? '',
     ward: data.ward ?? '',
     bed: data.bed ?? '',

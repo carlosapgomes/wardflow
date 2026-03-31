@@ -20,6 +20,7 @@ import { applyInputCase, getInputPreferences } from '@/services/settings/setting
 
 @customElement('new-note-view')
 export class NewNoteView extends LitElement {
+  @state() private visitId: string | null = null;
   @state() private noteId: string | null = null;
   @state() private ward = '';
   @state() private bed = '';
@@ -56,8 +57,11 @@ export class NewNoteView extends LitElement {
       // mantém defaults seguros
     }
 
-    // Verifica se há um ID na rota (modo edição)
+    // Lê visitId e noteId da rota
     const route = getCurrentRoute();
+    if (route?.params['visitId']) {
+      this.visitId = route.params['visitId'];
+    }
     if (route?.params['id']) {
       this.noteId = route.params['id'];
       await this.loadNote();
@@ -105,7 +109,13 @@ export class NewNoteView extends LitElement {
   };
 
   private handleSave = async () => {
+    if (!this.visitId) {
+      this.error = 'Visita não encontrada';
+      return;
+    }
+
     const input: CreateNoteInput = {
+      visitId: this.visitId,
       ward: this.ward,
       bed: this.bed,
       reference: this.reference || undefined,
@@ -126,7 +136,7 @@ export class NewNoteView extends LitElement {
       } else {
         await saveNote(input);
       }
-      navigate('/dashboard');
+      navigate(`/visita/${this.visitId}`);
     } catch (err) {
       this.error = err instanceof Error ? err.message : 'Erro ao salvar nota';
     } finally {
@@ -135,7 +145,11 @@ export class NewNoteView extends LitElement {
   };
 
   private handleCancel = () => {
-    navigate('/dashboard');
+    if (this.visitId) {
+      navigate(`/visita/${this.visitId}`);
+    } else {
+      navigate('/dashboard');
+    }
   };
 
   private handleDeleteRequest = () => {
@@ -157,7 +171,11 @@ export class NewNoteView extends LitElement {
 
     try {
       await deleteNote(this.noteId);
-      navigate('/dashboard');
+      if (this.visitId) {
+        navigate(`/visita/${this.visitId}`);
+      } else {
+        navigate('/dashboard');
+      }
     } catch (err) {
       this.error = err instanceof Error ? err.message : 'Erro ao excluir nota';
     } finally {

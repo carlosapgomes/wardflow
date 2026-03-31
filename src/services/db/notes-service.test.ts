@@ -8,6 +8,7 @@ import * as notesService from './notes-service';
 describe('notes-service - validateNoteInput', () => {
   it('deve retornar true para input válido', () => {
     const input = {
+      visitId: 'visit-123',
       ward: 'UTI',
       bed: '01',
       note: 'Nota válida',
@@ -18,6 +19,7 @@ describe('notes-service - validateNoteInput', () => {
 
   it('deve retornar false se ward vazio', () => {
     const input = {
+      visitId: 'visit-123',
       ward: '',
       bed: '01',
       note: 'Nota válida',
@@ -28,6 +30,7 @@ describe('notes-service - validateNoteInput', () => {
 
   it('deve retornar false se bed vazio', () => {
     const input = {
+      visitId: 'visit-123',
       ward: 'UTI',
       bed: '',
       note: 'Nota válida',
@@ -38,6 +41,7 @@ describe('notes-service - validateNoteInput', () => {
 
   it('deve retornar false se note vazio', () => {
     const input = {
+      visitId: 'visit-123',
       ward: 'UTI',
       bed: '01',
       note: '',
@@ -49,6 +53,7 @@ describe('notes-service - validateNoteInput', () => {
   it('deve retornar false se note exceder limite de 2000 caracteres', () => {
     const longNote = 'a'.repeat(2001);
     const input = {
+      visitId: 'visit-123',
       ward: 'UTI',
       bed: '01',
       note: longNote,
@@ -60,6 +65,7 @@ describe('notes-service - validateNoteInput', () => {
   it('deve retornar true se note tem exatamente 2000 caracteres', () => {
     const exactNote = 'a'.repeat(2000);
     const input = {
+      visitId: 'visit-123',
       ward: 'UTI',
       bed: '01',
       note: exactNote,
@@ -71,6 +77,7 @@ describe('notes-service - validateNoteInput', () => {
   it('deve retornar true para input com espaços em branco que serão trimmed', () => {
     // O validateNoteInput não faz trim, apenas verifica se os campos estão vazios após trim
     const input = {
+      visitId: 'visit-123',
       ward: '   ',
       bed: '01',
       note: 'Nota',

@@ -16,6 +16,7 @@ function createTestNote(overrides: Partial<Note>): Note {
     date: '2024-03-25',
     ward: 'UTI',
     bed: '01',
+      visitId: 'visit-1',
     note: 'Test note',
     createdAt: new Date(),
     expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
@@ -109,6 +110,7 @@ describe('groupNotesByDateAndWard', () => {
         date: '2024-03-25',
         ward: 'UTI',
         bed: '01',
+      visitId: 'visit-1',
         createdAt: new Date(now - 2000),
       }),
       createTestNote({

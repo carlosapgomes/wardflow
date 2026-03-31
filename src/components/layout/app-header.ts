@@ -31,6 +31,7 @@ if (typeof window !== 'undefined') {
 @customElement('app-header')
 export class AppHeader extends LitElement {
   @property({ type: String }) override title = 'VisitaMed';
+  @property({ type: Boolean }) showBack = false;
   @state() private user: AuthState['user'] = null;
   @state() private showMenu = false;
   @state() private showAboutModal = false;
@@ -207,6 +208,10 @@ export class AppHeader extends LitElement {
     img.style.display = 'none';
   };
 
+  private handleBackClick = (): void => {
+    this.dispatchEvent(new CustomEvent('back-click', { bubbles: true, composed: true }));
+  };
+
   private getAvatarContent() {
     if (!this.user) return null;
 
@@ -310,14 +315,28 @@ export class AppHeader extends LitElement {
           <div class="container-fluid wf-page-container px-3">
             <div class="d-flex align-items-center justify-content-between w-100">
               <div class="wf-header-slot">
-                <span class="wf-brand text-primary" aria-label="VisitaMed">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="36" height="24" viewBox="0 0 36 24" fill="none" role="img">
-                    <!-- V -->
-                    <path d="M2 4L8 20L14 4" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-                    <!-- M -->
-                    <path d="M18 20V4L26 20L34 4V20" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-                  </svg>
-                </span>
+                ${this.showBack
+                  ? html`
+                      <button
+                        class="btn p-0 border-0 bg-transparent text-body"
+                        @click=${this.handleBackClick}
+                        aria-label="Voltar"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                        </svg>
+                      </button>
+                    `
+                  : html`
+                      <span class="wf-brand text-primary" aria-label="VisitaMed">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="36" height="24" viewBox="0 0 36 24" fill="none" role="img">
+                          <!-- V -->
+                          <path d="M2 4L8 20L14 4" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                          <!-- M -->
+                          <path d="M18 20V4L26 20L34 4V20" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                      </span>
+                    `}
               </div>
 
               <h1 class="wf-header-title mb-0 text-center flex-grow-1">${this.title}</h1>

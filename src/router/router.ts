@@ -27,10 +27,11 @@ let currentMatch: RouteMatch | null = null;
  * Configuração de rotas
  */
 export const routes: Route[] = [
-  { path: '/', component: 'dashboard-view', guard: requireAuth },
-  { path: '/dashboard', component: 'dashboard-view', guard: requireAuth },
-  { path: '/nova-nota', component: 'new-note-view', guard: requireAuth },
-  { path: '/editar-nota/:id', component: 'new-note-view', guard: requireAuth },
+  { path: '/', component: 'visits-view', guard: requireAuth },
+  { path: '/dashboard', component: 'visits-view', guard: requireAuth },
+  { path: '/visita/:visitId', component: 'dashboard-view', guard: requireAuth },
+  { path: '/visita/:visitId/nova-nota', component: 'new-note-view', guard: requireAuth },
+  { path: '/visita/:visitId/editar-nota/:id', component: 'new-note-view', guard: requireAuth },
   { path: '/configuracoes', component: 'settings-view', guard: requireAuth },
   { path: '/login', component: 'login-view' },
 ];

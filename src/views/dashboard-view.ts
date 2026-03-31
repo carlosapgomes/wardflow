@@ -6,8 +6,9 @@
 import { LitElement, html } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { liveQuery, type Subscription } from 'dexie';
-import { navigate } from '@/router/router';
+import { navigate, getCurrentRoute } from '@/router/router';
 import { getAllNotes, deleteNotes } from '@/services/db/notes-service';
+import { getVisitById } from '@/services/db/visits-service';
 import { groupNotesByDateAndWard } from '@/utils/group-notes-by-date-and-ward';
 import { generateMessage, copyToClipboard, type ExportScope } from '@/services/export/message-export';
 import type { Note } from '@/models/note';
@@ -33,6 +34,8 @@ type SelectedScope =
 
 @customElement('dashboard-view')
 export class DashboardView extends LitElement {
+  @state() private visitId: string | null = null;
+  @state() private visitName = '';
   @state() private notes: Note[] = [];
   @state() private isLoading = true;
   @state() private isActionSheetOpen = false;
@@ -50,9 +53,28 @@ export class DashboardView extends LitElement {
     return this;
   }
 
-  override connectedCallback(): void {
+  override async connectedCallback(): Promise<void> {
     super.connectedCallback();
+
+    // Lê visitId da rota
+    const route = getCurrentRoute();
+    if (route?.params['visitId']) {
+      this.visitId = route.params['visitId'];
+      await this.loadVisitName();
+    }
+
     this.startNotesSubscription();
+  }
+
+  private async loadVisitName(): Promise<void> {
+    if (!this.visitId) return;
+
+    try {
+      const visit = await getVisitById(this.visitId);
+      this.visitName = visit?.name ?? '';
+    } catch {
+      this.visitName = '';
+    }
   }
 
   override disconnectedCallback(): void {
@@ -65,7 +87,15 @@ export class DashboardView extends LitElement {
     this.isLoading = true;
 
     this.notesSubscription?.unsubscribe();
-    this.notesSubscription = liveQuery(() => getAllNotes()).subscribe({
+
+    if (!this.visitId) {
+      this.notes = [];
+      this.isLoading = false;
+      return;
+    }
+
+    const visitId = this.visitId;
+    this.notesSubscription = liveQuery(() => getAllNotes(visitId)).subscribe({
       next: (notes) => {
         this.notes = notes;
         this.isLoading = false;
@@ -79,7 +109,8 @@ export class DashboardView extends LitElement {
   }
 
   private handleFabClick = () => {
-    navigate('/nova-nota');
+    if (!this.visitId) return;
+    navigate(`/visita/${this.visitId}/nova-nota`);
   };
 
   private formatDateForDisplay(date: string): string {
@@ -111,7 +142,8 @@ export class DashboardView extends LitElement {
   };
 
   private handleNoteClick = (e: CustomEvent<{ note: Note }>) => {
-    navigate(`/editar-nota/${e.detail.note.id}`);
+    if (!this.visitId) return;
+    navigate(`/visita/${this.visitId}/editar-nota/${e.detail.note.id}`);
   };
 
   private handleActionSelected = async (e: CustomEvent<{ actionId: string }>) => {
@@ -284,8 +316,10 @@ export class DashboardView extends LitElement {
   }
 
   private renderDashboardContent() {
+    const title = this.visitName || 'Notas';
+
     return html`
-      <app-header title="VisitaMed"></app-header>
+      <app-header title=${title} ?showBack=${true} @back-click=${this.handleBackClick}></app-header>
       <sync-status-bar></sync-status-bar>
 
       <main class="container-fluid wf-page-container wf-with-header-sync wf-sheet-safe pb-4">
@@ -299,6 +333,10 @@ export class DashboardView extends LitElement {
       <fab-button icon="plus" label="Nova nota" @fab-click=${this.handleFabClick}></fab-button>
     `;
   }
+
+  private handleBackClick = () => {
+    navigate('/dashboard');
+  };
 
   private renderPreview() {
     return html`
