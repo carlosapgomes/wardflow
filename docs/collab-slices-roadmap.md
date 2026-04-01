@@ -61,7 +61,7 @@
 | S5B | DONE | Sync push/pull por visita | `docs/collab-slice5b-visit-sync-push-pull-handoff-prompt.md` |
 | S5C | DONE | Conflitos offline (`delete > update`) + descarte pós-revogação | `docs/collab-slice5c-delete-wins-revocation-discard-handoff-prompt.md` |
 | S5D | DONE | Realtime apenas da visita aberta | `docs/collab-slice5d-active-visit-realtime-handoff-prompt.md` |
-| S6A | TODO | Duplicar visita (nova data, novo owner) | (gerar) |
+| S6A | DONE | Duplicar visita (nova data, novo owner) | `docs/collab-slice6a-duplicate-visit-private-owner-handoff-prompt.md` |
 | S7A | TODO | Base de tags (`ward` -> `tags[]`) | (gerar) |
 | S7B | TODO | UI múltiplas tags + remover-tag-ou-nota | (gerar) |
 | S8A | TODO | Agrupamento dashboard por tags (TDD) | (gerar) |
@@ -88,8 +88,9 @@
 - S5B: `02339f1`
 - S5C: `8ba4d94`
 - S5D: `1e82d60`
+- S6A: `c977b27`
 
-Estado atual validado localmente: typecheck/lint/test verdes (195 testes).
+Estado atual validado localmente: typecheck/lint/test verdes (201 testes).
 
 ---
 
