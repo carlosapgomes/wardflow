@@ -9,6 +9,7 @@ import { initializeRouter, subscribeToRoute, getCurrentRoute, navigate, type Rou
 import { initializeAuth, subscribeToAuth, type AuthState } from '@/services/auth/auth-service';
 import { initializeTheme } from '@/services/theme/theme-service';
 import { cleanExpiredNotes } from '@/services/db/dexie-db';
+import { validateRedirectUrl, getCurrentPathWithQuery } from '@/utils/redirect-validator';
 import {
   cleanupSync,
   initializeSync,
@@ -27,6 +28,7 @@ import './views/dashboard-view';
 import './views/new-note-view';
 import './views/login-view';
 import './views/settings-view';
+import './views/invite-accept-view';
 
 @customElement('visitamed-app')
 export class VisitaMedApp extends LitElement {
@@ -106,15 +108,21 @@ export class VisitaMedApp extends LitElement {
     const isProtectedRoute = currentRoute.route.guard !== undefined;
     const isLoginRoute = currentRoute.route.path === '/login';
 
-    // Deslogado em rota protegida -> /login
+    // Deslogado em rota protegida -> /login com next
     if (isProtectedRoute && !isLoggedIn) {
-      navigate('/login', true);
+      const currentPath = getCurrentPathWithQuery();
+      const loginUrl = `/login?next=${encodeURIComponent(currentPath)}`;
+      navigate(loginUrl, true);
       return;
     }
 
-    // Logado em /login -> /dashboard
+    // Logado em /login -> usa o next ou dashboard
     if (isLoginRoute && isLoggedIn) {
-      navigate('/dashboard', true);
+      const urlParams = new URLSearchParams(window.location.search);
+      const next = urlParams.get('next');
+      const redirectTo = validateRedirectUrl(next);
+      navigate(redirectTo, true);
+      return;
     }
   }
 
@@ -154,6 +162,9 @@ export class VisitaMedApp extends LitElement {
         break;
       case 'settings-view':
         view = html`<settings-view></settings-view>`;
+        break;
+      case 'invite-accept-view':
+        view = html`<invite-accept-view></invite-accept-view>`;
         break;
       default:
         view = html`<visits-view></visits-view>`;

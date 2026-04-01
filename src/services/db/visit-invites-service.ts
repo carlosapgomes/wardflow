@@ -5,7 +5,9 @@
 
 import { db } from './dexie-db';
 import { createVisitInvite, isInviteActive, revokeInvite, type VisitInvite, type InviteRole, type CreateVisitInviteInput } from '@/models/visit-invite';
+import { createVisitMember, type VisitMember } from '@/models/visit-member';
 import { getAuthState } from '@/services/auth/auth-service';
+import { getVisitMember } from './visit-members-service';
 
 /**
  * Obtém o ID do usuário atual ou lança erro se não autenticado
@@ -82,4 +84,72 @@ export async function revokeVisitInvite(inviteId: string): Promise<VisitInvite |
   await db.visitInvites.put(revokedInvite);
 
   return revokedInvite;
+}
+
+/**
+ * Status possíveis ao aceitar um convite
+ */
+export type AcceptInviteStatus =
+  | 'accepted'
+  | 'already-member'
+  | 'invite-not-found'
+  | 'invite-expired'
+  | 'invite-revoked'
+  | 'access-revoked';
+
+/**
+ * Resultado de aceite de convite
+ */
+export interface AcceptInviteResult {
+  status: AcceptInviteStatus;
+  visitId?: string;
+}
+
+/**
+ * Aceita um convite por token
+ * Cria membership ativo quando válido
+ * Convite é de uso múltiplo (não é deletado após aceite)
+ */
+export async function acceptVisitInviteByToken(token: string): Promise<AcceptInviteResult> {
+  const userId = requireUserId();
+  const now = new Date();
+
+  // 1. Busca convite por token
+  const invite = await findInviteByToken(token);
+
+  // 2. Valida convite
+  if (!invite) {
+    return { status: 'invite-not-found' };
+  }
+
+  if (invite.revokedAt) {
+    return { status: 'invite-revoked', visitId: invite.visitId };
+  }
+
+  if (isInviteActive(invite, now)) {
+    // ainda ativo, mas precisa verificar expiração
+    const expiresAt = new Date(invite.expiresAt);
+    if (now > expiresAt) {
+      return { status: 'invite-expired', visitId: invite.visitId };
+    }
+  } else {
+    return { status: 'invite-expired', visitId: invite.visitId };
+  }
+
+  // 3. Verifica membership atual
+  const existingMember = await getVisitMember(invite.visitId, userId);
+
+  if (existingMember) {
+    if (existingMember.status === 'active') {
+      return { status: 'already-member', visitId: invite.visitId };
+    }
+    // status === 'removed'
+    return { status: 'access-revoked', visitId: invite.visitId };
+  }
+
+  // 4. Cria membership ativo com role do convite
+  const newMember: VisitMember = createVisitMember(invite.visitId, userId, invite.role);
+  await db.visitMembers.put(newMember);
+
+  return { status: 'accepted', visitId: invite.visitId };
 }

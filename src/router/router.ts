@@ -4,6 +4,7 @@
  */
 
 import { getAuthState } from '@/services/auth/auth-service';
+import { getCurrentPathWithQuery } from '@/utils/redirect-validator';
 
 export type RouteParams = Record<string, string>;
 
@@ -34,6 +35,7 @@ export const routes: Route[] = [
   { path: '/visita/:visitId/editar-nota/:id', component: 'new-note-view', guard: requireAuth },
   { path: '/configuracoes', component: 'settings-view', guard: requireAuth },
   { path: '/login', component: 'login-view' },
+  { path: '/convite/:token', component: 'invite-accept-view', guard: requireAuth },
 ];
 
 /**
@@ -117,7 +119,9 @@ async function handleRouteChange(): Promise<void> {
   if (match.route.guard) {
     const canAccess = await match.route.guard();
     if (!canAccess) {
-      navigate('/login', true);
+      const currentPath = getCurrentPathWithQuery();
+      const loginUrl = `/login?next=${encodeURIComponent(currentPath)}`;
+      navigate(loginUrl, true);
       return;
     }
   }
