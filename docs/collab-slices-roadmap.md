@@ -66,7 +66,7 @@
 | S7B | DONE | UI múltiplas tags + remover-tag-ou-nota | `docs/collab-slice7b-tags-ui-remove-tag-or-note-handoff-prompt.md` |
 | S8A | DONE | Agrupamento dashboard por tags (TDD) | `docs/collab-slice8a-dashboard-group-by-tags-tdd-handoff-prompt.md` |
 | S8B | DONE | Componente de grupo por tag + actions | `docs/collab-slice8b-tag-group-component-actions-handoff-prompt.md` |
-| S9A | TODO | Exportação com mesmo critério do dashboard | (gerar) |
+| S9A | DONE | Exportação com mesmo critério do dashboard | `docs/collab-slice9a-export-by-tags-aligned-dashboard-handoff-prompt.md` |
 | S10 | TODO | Hardening final + limpeza | (gerar) |
 
 ---
@@ -93,6 +93,7 @@
 - S7B: `c3676c2`
 - S8A: `a2b387f`
 - S8B: `52646e6`
+- S9A: `b26db22`
 
 Estado atual validado localmente: typecheck/lint/test verdes (237 testes).
 
