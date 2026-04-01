@@ -603,6 +603,144 @@ describe('sync-service - resolveWardStatConflict', () => {
   });
 });
 
+describe('sync-service - shouldSkipNoteQueueItemDueToLaterDelete', () => {
+  const makeItem = (
+    id: string,
+    entityId: string,
+    operation: 'create' | 'update' | 'delete',
+    entityType: 'note' | 'wardStat' = 'note'
+  ): SyncQueueItem => ({
+    id,
+    userId: 'user-123',
+    operation,
+    entityType,
+    entityId,
+    payload: '{}',
+    createdAt: new Date(),
+    retryCount: 0,
+  });
+
+  it('deve retornar false para entityType não é nota', () => {
+    const item = makeItem('item-1', 'ward-1', 'update', 'wardStat');
+    const allPending = [item];
+
+    const result = syncService.shouldSkipNoteQueueItemDueToLaterDelete(item, allPending);
+    expect(result).toBe(false);
+  });
+
+  it('deve retornar false para operação delete', () => {
+    const item = makeItem('item-1', 'note-1', 'delete');
+    const allPending = [item];
+
+    const result = syncService.shouldSkipNoteQueueItemDueToLaterDelete(item, allPending);
+    expect(result).toBe(false);
+  });
+
+  it('deve retornar false quando não há delete posterior', () => {
+    const item = makeItem('item-1', 'note-1', 'update');
+    const allPending = [
+      item,
+      makeItem('item-2', 'note-2', 'create'),
+      makeItem('item-3', 'note-2', 'update'),
+    ];
+
+    const result = syncService.shouldSkipNoteQueueItemDueToLaterDelete(item, allPending);
+    expect(result).toBe(false);
+  });
+
+  it('deve retornar true quando há delete posterior da mesma nota', () => {
+    const item = makeItem('item-1', 'note-1', 'update');
+    const allPending = [
+      item,
+      makeItem('item-2', 'note-2', 'create'),
+      makeItem('item-3', 'note-1', 'delete'), // delete posterior da mesma nota
+    ];
+
+    const result = syncService.shouldSkipNoteQueueItemDueToLaterDelete(item, allPending);
+    expect(result).toBe(true);
+  });
+
+  it('deve retornar false para delete posterior de outra nota', () => {
+    const item = makeItem('item-1', 'note-1', 'create');
+    const allPending = [
+      item,
+      makeItem('item-2', 'note-2', 'delete'), // delete de outra nota
+    ];
+
+    const result = syncService.shouldSkipNoteQueueItemDueToLaterDelete(item, allPending);
+    expect(result).toBe(false);
+  });
+
+  it('deve retornar true quando há delete posterior imediato', () => {
+    const item = makeItem('item-1', 'note-1', 'update');
+    const allPending = [
+      item,
+      makeItem('item-2', 'note-1', 'delete'),
+    ];
+
+    const result = syncService.shouldSkipNoteQueueItemDueToLaterDelete(item, allPending);
+    expect(result).toBe(true);
+  });
+
+  it('deve retornar false quando o item é o último na fila', () => {
+    const item = makeItem('item-2', 'note-1', 'update');
+    const allPending = [
+      makeItem('item-1', 'note-2', 'delete'),
+      item,
+    ];
+
+    const result = syncService.shouldSkipNoteQueueItemDueToLaterDelete(item, allPending);
+    expect(result).toBe(false);
+  });
+
+  it('deve retornar false quando item não existe no array allPending', () => {
+    const item = makeItem('item-x', 'note-1', 'update');
+    const allPending = [
+      makeItem('item-1', 'note-1', 'update'),
+      makeItem('item-2', 'note-1', 'delete'),
+    ];
+
+    const result = syncService.shouldSkipNoteQueueItemDueToLaterDelete(item, allPending);
+    expect(result).toBe(false);
+  });
+});
+
+describe('sync-service - isPermissionDeniedError', () => {
+  it('deve retornar true para erro com permission-denied', () => {
+    const error = new Error('FirebaseError: permission-denied');
+    const result = syncService.isPermissionDeniedError(error);
+    expect(result).toBe(true);
+  });
+
+  it('deve retornar true para erro com permission denied (sem hífen)', () => {
+    const error = new Error('permission denied: insufficient permissions');
+    const result = syncService.isPermissionDeniedError(error);
+    expect(result).toBe(true);
+  });
+
+  it('deve retornar true para erro com firestore.permission_denied', () => {
+    const error = new Error('FIRESTORE.PERMISSION_DENIED: cross-user not allowed');
+    const result = syncService.isPermissionDeniedError(error);
+    expect(result).toBe(true);
+  });
+
+  it('deve retornar false para erro sem permission denied', () => {
+    const error = new Error('Document not found');
+    const result = syncService.isPermissionDeniedError(error);
+    expect(result).toBe(false);
+  });
+
+  it('deve retornar false para erro não-Error', () => {
+    const result = syncService.isPermissionDeniedError('string error');
+    expect(result).toBe(false);
+  });
+
+  it('deve retornar false para null/undefined', () => {
+    expect(syncService.isPermissionDeniedError(null)).toBe(false);
+    expect(syncService.isPermissionDeniedError(undefined)).toBe(false);
+  });
+});
+
 describe('sync-service - resolveSettingsConflict', () => {
   const makeLocalSettings = (updatedAtIso: string) => ({
     id: 'user-settings' as const,

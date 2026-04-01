@@ -52,6 +52,57 @@ let onlineHandler: (() => void) | null = null;
 let periodicSyncIntervalId: number | null = null;
 
 /**
+ * Helper puro: verifica se item de nota deve ser pulado por haver delete posterior na fila.
+ * Aplica política: delete vence update.
+ */
+export function shouldSkipNoteQueueItemDueToLaterDelete(
+  item: SyncQueueItem,
+  allPending: SyncQueueItem[]
+): boolean {
+  // Apenas para notas
+  if (item.entityType !== 'note') {
+    return false;
+  }
+
+  // Apenas para operações create/update (delete não precisa ser pulado)
+  if (item.operation === 'delete') {
+    return false;
+  }
+
+  // Buscar se há delete posterior do mesmo entityId
+  const itemIndex = allPending.findIndex((i) => i.id === item.id);
+
+  if (itemIndex < 0) {
+    return false;
+  }
+
+  const laterItems = allPending.slice(itemIndex + 1);
+
+  return laterItems.some(
+    (later) =>
+      later.entityType === 'note' &&
+      later.entityId === item.entityId &&
+      later.operation === 'delete'
+  );
+}
+
+/**
+ * Helper puro: detecta se erro é de permissão do Firestore.
+ */
+export function isPermissionDeniedError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return (
+    message.includes('permission-denied') ||
+    message.includes('permission denied') ||
+    message.includes('firestore.permission_denied')
+  );
+}
+
+/**
  * Obtém o status atual de sincronização
  */
 export function getSyncStatus(): SyncStatus {
@@ -162,6 +213,15 @@ export async function syncNow(): Promise<void> {
       .sortBy('createdAt');
 
     for (const item of pendingItems) {
+      // Pular item se houver delete posterior na fila (política: delete > update)
+      if (shouldSkipNoteQueueItemDueToLaterDelete(item, pendingItems)) {
+        await db.syncQueue.delete(item.id);
+        console.log(
+          `[VisitaMed] Pulando item ${item.id} (delete posterior encontrado para nota ${item.entityId})`
+        );
+        continue;
+      }
+
       try {
         await processSyncItem(item, firestore);
         await db.syncQueue.delete(item.id);
@@ -317,11 +377,8 @@ async function processNoteSyncItem(item: SyncQueueItem, firestore: Firestore): P
   }
 
   if (item.operation === 'update') {
-    try {
-      await updateDoc(noteRef, noteData as UpdateData<DocumentData>);
-    } catch {
-      await setDoc(noteRef, noteData, { merge: true });
-    }
+    // Sem fallback setDoc merge - erro será tratado em handleSyncError
+    await updateDoc(noteRef, noteData as UpdateData<DocumentData>);
   }
 
   if (item.operation === 'delete') {
@@ -478,6 +535,20 @@ async function handleSyncError(item: SyncQueueItem, error: unknown): Promise<voi
   const message = error instanceof Error ? error.message : 'Erro desconhecido';
   const retryCount = item.retryCount + 1;
   const lastAttemptAt = new Date();
+
+  // Tratar permission-denied para notas: descartar nota local + item da fila, sem retry
+  if (item.entityType === 'note' && isPermissionDeniedError(error)) {
+    console.warn(
+      `[VisitaMed] Permission denied para nota ${item.entityId}: descartando dados locais`
+    );
+
+    // Remover nota local
+    await db.notes.delete(item.entityId);
+
+    // Remover item da fila sem retry
+    await db.syncQueue.delete(item.id);
+    return;
+  }
 
   if (retryCount >= SYNC_QUEUE_CONSTANTS.MAX_RETRIES) {
     console.error('[VisitaMed] Item excedeu máximo de tentativas:', item.id);
