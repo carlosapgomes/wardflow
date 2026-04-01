@@ -61,6 +61,9 @@ export const NOTE_CONSTANTS = {
 
   /** Tamanho máximo do campo reference */
   MAX_REFERENCE_LENGTH: 100,
+
+  /** Máximo de tags por nota */
+  MAX_TAGS_PER_NOTE: 10,
 } as const;
 
 /**

@@ -13,8 +13,10 @@ import {
   getNoteById,
   validateNoteInput,
   getWardSuggestionsWithFallback,
+  removeTagFromNote,
   type CreateNoteInput,
 } from '@/services/db/notes-service';
+import { normalizeTagList } from '@/models/tag';
 import { getCurrentUserVisitMember } from '@/services/db/visit-members-service';
 import { canEditNote, getVisitAccessState, type VisitAccessState } from '@/services/auth/visit-permissions';
 import { NOTE_CONSTANTS } from '@/models/note';
@@ -39,6 +41,8 @@ export class NewNoteView extends LitElement {
   @state() private canEdit = false;
   @state() private permissionChecked = false;
   @state() private accessState: VisitAccessState = 'no-membership';
+  @state() private tagsInput = '';
+  @state() private tags: string[] = [];
 
   private get isEditMode(): boolean {
     return this.noteId !== null;
@@ -105,6 +109,7 @@ export class NewNoteView extends LitElement {
         this.bed = existingNote.bed;
         this.reference = existingNote.reference ?? '';
         this.note = existingNote.note;
+        this.tags = existingNote.tags ?? [];
       } else {
         this.error = 'Nota não encontrada';
       }
@@ -133,6 +138,50 @@ export class NewNoteView extends LitElement {
     this.note = (e.target as HTMLTextAreaElement).value;
   };
 
+  private handleTagsInput = (e: Event) => {
+    this.tagsInput = (e.target as HTMLInputElement).value;
+  };
+
+  private parseTagsFromInput(input: string): string[] {
+    return normalizeTagList(
+      input
+        .split(',')
+        .map((t) => t.trim())
+        .filter((t) => t.length > 0)
+    );
+  }
+
+  private handleAddTag = () => {
+    const newTags = this.parseTagsFromInput(this.tagsInput);
+    const combined = [...new Set([...this.tags, ...newTags])];
+    this.tags = combined.slice(0, 10);
+    this.tagsInput = '';
+  };
+
+  private handleRemoveTag = async (tagToRemove: string) => {
+    if (!this.isEditMode || !this.noteId) {
+      // Modo criação: remove do draft local
+      this.tags = this.tags.filter((tag) => tag !== tagToRemove);
+      return;
+    }
+
+    // Modo edição: usa removeTagFromNote
+    try {
+      const result = await removeTagFromNote(this.noteId, tagToRemove);
+      if (result === 'deleted' && this.visitId) {
+        navigate(`/visita/${this.visitId}`);
+        return;
+      }
+      // Recarrega as tags atualizadas
+      const updatedNote = await getNoteById(this.noteId);
+      if (updatedNote) {
+        this.tags = updatedNote.tags ?? [];
+      }
+    } catch (err) {
+      this.error = err instanceof Error ? err.message : 'Erro ao remover tag';
+    }
+  };
+
   private handleSave = async () => {
     if (!this.canEdit) {
       this.error = 'Sem permissão para editar esta visita';
@@ -150,6 +199,7 @@ export class NewNoteView extends LitElement {
       bed: this.bed,
       reference: this.reference || undefined,
       note: this.note,
+      tags: this.tags,
     };
 
     if (!validateNoteInput(input)) {
@@ -344,6 +394,45 @@ export class NewNoteView extends LitElement {
                 style="text-transform: uppercase"
               />
             </div>
+
+            <div class="mb-3">
+              <label for="tags" class="form-label">Tags (opcional)</label>
+              <div class="input-group">
+                <input
+                  id="tags"
+                  class="form-control"
+                  type="text"
+                  .value=${this.tagsInput}
+                  @input=${this.handleTagsInput}
+                  @keydown=${(e: KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); this.handleAddTag(); } }}
+                  placeholder="Ex: UTI, Emergência"
+                  autocomplete="off"
+                />
+                <button type="button" class="btn btn-outline-secondary" @click=${this.handleAddTag}>
+                  Adicionar
+                </button>
+              </div>
+              <div class="form-text">Separe por vírgula. Máximo 10 tags.</div>
+            </div>
+
+            ${this.tags.length > 0 ? html`
+              <div class="mb-3">
+                <div class="d-flex flex-wrap gap-2">
+                  ${this.tags.map((tag) => html`
+                    <span class="badge bg-primary d-flex align-items-center gap-1 py-2 px-3">
+                      ${tag}
+                      <button
+                        type="button"
+                        class="btn-close btn-close-white"
+                        style="font-size: 0.5rem;"
+                        @click=${() => this.handleRemoveTag(tag)}
+                        aria-label="Remover tag"
+                      ></button>
+                    </span>
+                  `)}
+                </div>
+              </div>
+            ` : null}
 
             <div class="mb-2">
               <label for="note" class="form-label">Nota *</label>

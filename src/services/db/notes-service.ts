@@ -5,7 +5,7 @@
 
 import { db } from './dexie-db';
 import { createNote, NOTE_CONSTANTS, type Note } from '@/models/note';
-import { deriveTagsFromWard } from '@/models/tag';
+import { deriveTagsFromWard, normalizeTagList, normalizeTagValue } from '@/models/tag';
 import { createSyncQueueItem } from '@/models/sync-queue';
 import { isNoteActive } from '@/utils/note-expiration';
 import { getAuthState } from '@/services/auth/auth-service';
@@ -19,6 +19,7 @@ export interface CreateNoteInput {
   bed: string;
   note: string;
   reference?: string;
+  tags?: string[];
 }
 
 /**
@@ -144,6 +145,10 @@ async function recordWardUsageAndQueueSync(
 export async function saveNote(input: CreateNoteInput): Promise<Note> {
   const userId = requireUserId();
 
+  // Normaliza tags fornecidas ou usa fallback derivadas do ward
+  const normalizedTags = normalizeTagList(input.tags ?? [], 10);
+  const tags = normalizedTags.length > 0 ? normalizedTags : deriveTagsFromWard(input.ward.trim());
+
   const note = createNote({
     userId,
     visitId: input.visitId,
@@ -151,7 +156,7 @@ export async function saveNote(input: CreateNoteInput): Promise<Note> {
     bed: input.bed.trim(),
     note: input.note.trim(),
     reference: input.reference?.trim() ?? undefined,
-    tags: deriveTagsFromWard(input.ward.trim()),
+    tags,
     syncStatus: 'pending',
   });
 
@@ -324,9 +329,15 @@ export async function deleteNotes(noteIds: string[]): Promise<void> {
  * Valida que a nota pertence ao usuário atual
  * Registra uso da ala + sync se houver mudança (mesma transação)
  */
+/**
+ * Atualiza uma nota existente
+ * Valida que a nota pertence ao usuário atual
+ * Registra uso da ala + sync se houver mudança (mesma transação)
+ * Aceita tags normalizadas
+ */
 export async function updateNote(
   noteId: string,
-  updates: Partial<Pick<Note, 'ward' | 'bed' | 'note' | 'reference'>>
+  updates: Partial<Pick<Note, 'ward' | 'bed' | 'note' | 'reference' | 'tags'>>
 ): Promise<void> {
   const userId = requireUserId();
   const updatedAt = new Date();
@@ -345,10 +356,17 @@ export async function updateNote(
     newWardValue !== undefined &&
     normalizeWardKey(oldWardValue) !== normalizeWardKey(newWardValue);
 
-  // Derivar novas tags a partir do ward (se mudou)
-  const tagsUpdate = wardChanged && newWardValue
-    ? { tags: deriveTagsFromWard(newWardValue) }
-    : {};
+  // Derivar novas tags a partir do ward (se mudou) ou normalizar tags fornecidas
+  let tagsUpdate: Partial<Note> = {};
+  
+  if (updates.tags !== undefined) {
+    // Tags fornecidas explicitamente - normalizar
+    const normalizedTags = normalizeTagList(updates.tags, 10);
+    tagsUpdate = { tags: normalizedTags.length > 0 ? normalizedTags : deriveTagsFromWard(newWardValue ?? existingNote.ward) };
+  } else if (wardChanged && newWardValue) {
+    // Ward mudou, derivar tags do novo ward
+    tagsUpdate = { tags: deriveTagsFromWard(newWardValue) };
+  }
 
   // Transação atômica: nota + wardStat (se mudou) + sync queue
   await db.transaction('rw', db.notes, db.syncQueue, db.wardStats, async () => {
@@ -370,4 +388,57 @@ export async function updateNote(
       await recordWardUsageAndQueueSync(userId, newWardValue);
     }
   });
+}
+
+/**
+ * Remove uma tag de uma nota
+ * Retorna 'updated' se a nota continuar com tags, 'deleted' se a última tag foi removida
+ * Regra: se última tag removida, exclui a nota
+ */
+export async function removeTagFromNote(
+  noteId: string,
+  tagToRemove: string
+): Promise<'updated' | 'deleted'> {
+  const userId = requireUserId();
+  const normalizedTag = normalizeTagValue(tagToRemove);
+
+  if (!normalizedTag) {
+    throw new Error('Tag inválida');
+  }
+
+  // Busca nota existente
+  const existingNote = await db.notes.get(noteId);
+  if (!existingNote) {
+    throw new Error('Nota não encontrada');
+  }
+  validateOwnership(existingNote, userId);
+
+  const currentTags = existingNote.tags ?? [];
+  
+  // Filtra a tag a remover (por equivalência canônica)
+  const remainingTags = currentTags.filter((tag) => normalizeTagValue(tag) !== normalizedTag);
+
+  // Transação atômica: update ou delete + sync queue
+  await db.transaction('rw', db.notes, db.syncQueue, async () => {
+    if (remainingTags.length === 0) {
+      // Última tag removida - exclui a nota
+      await db.notes.delete(noteId);
+      await queueNoteForSyncInTransaction('delete', existingNote);
+    } else {
+      // Atualiza com tags restantes
+      const updatedAt = new Date();
+      await db.notes.update(noteId, {
+        tags: remainingTags,
+        updatedAt,
+        syncStatus: 'pending',
+      });
+
+      const updatedNote = await db.notes.get(noteId);
+      if (updatedNote) {
+        await queueNoteForSyncInTransaction('update', updatedNote);
+      }
+    }
+  });
+
+  return remainingTags.length === 0 ? 'deleted' : 'updated';
 }

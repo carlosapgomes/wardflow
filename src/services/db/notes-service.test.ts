@@ -86,3 +86,40 @@ describe('notes-service - validateNoteInput', () => {
     expect(notesService.validateNoteInput(input)).toBe(false);
   });
 });
+
+describe('notes-service - CreateNoteInput com tags', () => {
+  it('deve aceitar tags no input', () => {
+    const input = {
+      visitId: 'visit-123',
+      ward: 'UTI',
+      bed: '01',
+      note: 'Nota válida',
+      tags: ['UTI', 'emergência'],
+    };
+
+    expect(notesService.validateNoteInput(input)).toBe(true);
+  });
+
+  it('deve aceitar tags vazio', () => {
+    const input = {
+      visitId: 'visit-123',
+      ward: 'UTI',
+      bed: '01',
+      note: 'Nota válida',
+      tags: [],
+    };
+
+    expect(notesService.validateNoteInput(input)).toBe(true);
+  });
+
+  it('deve aceitar tags undefined', () => {
+    const input = {
+      visitId: 'visit-123',
+      ward: 'UTI',
+      bed: '01',
+      note: 'Nota válida',
+    };
+
+    expect(notesService.validateNoteInput(input)).toBe(true);
+  });
+});
