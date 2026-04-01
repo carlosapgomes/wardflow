@@ -58,8 +58,8 @@
 | S4A | DONE | Remoção de membro owner-only (serviço + testes) | `prompts/collab-slice4a-owner-remove-member-handoff-prompt.md` |
 | S4B | DONE | UX de revogação (feedback/fluxo) | `docs/collab-slice4b-revocation-ux-handoff-prompt.md` |
 | S5A | DONE | Firestore schema colaborativo + rules ACL | `docs/collab-slice5a-firestore-acl-baseline-handoff-prompt.md` |
-| S5B | TODO | Sync push/pull por visita | `docs/collab-slice5b-visit-sync-push-pull-handoff-prompt.md` |
-| S5C | TODO | Conflitos offline (`delete > update`) + descarte pós-revogação | (gerar) |
+| S5B | DONE | Sync push/pull por visita | `docs/collab-slice5b-visit-sync-push-pull-handoff-prompt.md` |
+| S5C | TODO | Conflitos offline (`delete > update`) + descarte pós-revogação | `docs/collab-slice5c-delete-wins-revocation-discard-handoff-prompt.md` |
 | S5D | TODO | Realtime apenas da visita aberta | (gerar) |
 | S6A | TODO | Duplicar visita (nova data, novo owner) | (gerar) |
 | S7A | TODO | Base de tags (`ward` -> `tags[]`) | (gerar) |
@@ -85,8 +85,9 @@
 - S4A: `0b27603`
 - S4B: `04a488e`
 - S5A: `8ab17a7`
+- S5B: `02339f1`
 
-Estado atual validado localmente: typecheck/lint/test verdes (174 testes).
+Estado atual validado localmente: typecheck/lint/test verdes (181 testes).
 
 ---
 
