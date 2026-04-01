@@ -5,6 +5,7 @@
 
 import { db } from './dexie-db';
 import { createNote, NOTE_CONSTANTS, type Note } from '@/models/note';
+import { deriveTagsFromWard } from '@/models/tag';
 import { createSyncQueueItem } from '@/models/sync-queue';
 import { isNoteActive } from '@/utils/note-expiration';
 import { getAuthState } from '@/services/auth/auth-service';
@@ -150,6 +151,7 @@ export async function saveNote(input: CreateNoteInput): Promise<Note> {
     bed: input.bed.trim(),
     note: input.note.trim(),
     reference: input.reference?.trim() ?? undefined,
+    tags: deriveTagsFromWard(input.ward.trim()),
     syncStatus: 'pending',
   });
 
@@ -338,14 +340,21 @@ export async function updateNote(
 
   // Verifica se ala mudou e captura o novo valor
   const newWardValue = updates.ward;
+  const oldWardValue = existingNote.ward;
   const wardChanged =
     newWardValue !== undefined &&
-    normalizeWardKey(existingNote.ward) !== normalizeWardKey(newWardValue);
+    normalizeWardKey(oldWardValue) !== normalizeWardKey(newWardValue);
+
+  // Derivar novas tags a partir do ward (se mudou)
+  const tagsUpdate = wardChanged && newWardValue
+    ? { tags: deriveTagsFromWard(newWardValue) }
+    : {};
 
   // Transação atômica: nota + wardStat (se mudou) + sync queue
   await db.transaction('rw', db.notes, db.syncQueue, db.wardStats, async () => {
     await db.notes.update(noteId, {
       ...updates,
+      ...tagsUpdate,
       updatedAt,
       syncStatus: 'pending',
     });

@@ -11,6 +11,7 @@ import type { VisitMember } from '@/models/visit-member';
 import type { SyncQueueItem } from '@/models/sync-queue';
 import type { WardStat } from '@/models/ward-stat';
 import { normalizeSettings, SETTINGS_ID, type Settings } from '@/models/settings';
+import { normalizeTagList, deriveTagsFromWard } from '@/models/tag';
 import { getFirebaseFirestore } from '@/services/auth/firebase';
 import { getAuthState } from '@/services/auth/auth-service';
 import {
@@ -930,6 +931,7 @@ interface FirestoreNoteData {
   bed: string | null;
   reference?: string;
   note: string | null;
+  tags?: unknown;
   createdAt: unknown;
   updatedAt?: unknown;
   expiresAt: unknown;
@@ -984,6 +986,12 @@ function convertFirestoreNoteToLocal(
     console.warn(`[VisitaMed] Dados de nota inválidos (ID: ${id}), usando valores padrão`);
   }
 
+  // Processar tags: usar remotas se válidas, fallback para derived from ward
+  const remoteTags = normalizeTagList(data.tags);
+  const tags = remoteTags.length > 0
+    ? remoteTags
+    : deriveTagsFromWard(data.ward ?? '');
+
   return {
     id,
     userId,
@@ -993,6 +1001,7 @@ function convertFirestoreNoteToLocal(
     bed: data.bed ?? '',
     reference: data.reference,
     note: data.note ?? '',
+    tags,
     createdAt: createdAt ?? new Date(),
     updatedAt,
     expiresAt: expiresAt ?? new Date(Date.now() + 24 * 60 * 60 * 1000), // padrão: 24h

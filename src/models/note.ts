@@ -19,6 +19,9 @@ export interface Note {
   /** Ala/Unidade (ex: "UTI", "Enfermaria A") */
   ward: string;
 
+  /** Tags derivadas do ward (máx 10) */
+  tags?: string[];
+
   /** Leito (ex: "01", "02A") */
   bed: string;
 
@@ -75,6 +78,7 @@ export function createNote(partial: Partial<Note>): Note {
     date: now.toISOString().split('T')[0] ?? '',
     ward: '',
     bed: '',
+    tags: [],
     reference: undefined,
     note: '',
     createdAt: now,
