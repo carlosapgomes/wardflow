@@ -58,7 +58,7 @@
 | S4A | DONE | Remoção de membro owner-only (serviço + testes) | `prompts/collab-slice4a-owner-remove-member-handoff-prompt.md` |
 | S4B | DONE | UX de revogação (feedback/fluxo) | `docs/collab-slice4b-revocation-ux-handoff-prompt.md` |
 | S5A | DONE | Firestore schema colaborativo + rules ACL | `docs/collab-slice5a-firestore-acl-baseline-handoff-prompt.md` |
-| S5B | TODO | Sync push/pull por visita | (gerar) |
+| S5B | TODO | Sync push/pull por visita | `docs/collab-slice5b-visit-sync-push-pull-handoff-prompt.md` |
 | S5C | TODO | Conflitos offline (`delete > update`) + descarte pós-revogação | (gerar) |
 | S5D | TODO | Realtime apenas da visita aberta | (gerar) |
 | S6A | TODO | Duplicar visita (nova data, novo owner) | (gerar) |
