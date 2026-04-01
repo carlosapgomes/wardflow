@@ -3,6 +3,94 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ===============================
+    // Helpers de ACL colaborativa
+    // ===============================
+
+    // Usuário autenticado
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Verifica se usuário é membro ativo da visita
+    function isActiveMember(visitId, uid) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/visits/$(visitId)/members/$(uid))
+        && get(/databases/$(database)/documents/visits/$(visitId)/members/$(uid)).data.status == 'active';
+    }
+
+    // Verifica se usuário é owner ativo da visita
+    function isOwner(visitId, uid) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/visits/$(visitId)/members/$(uid))
+        && get(/databases/$(database)/documents/visits/$(visitId)/members/$(uid)).data.status == 'active'
+        && get(/databases/$(database)/documents/visits/$(visitId)/members/$(uid)).data.role == 'owner';
+    }
+
+    // Pode editar visita (owner ou editor ativo)
+    function canEditVisit(visitId, uid) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/visits/$(visitId)/members/$(uid))
+        && get(/databases/$(database)/documents/visits/$(visitId)/members/$(uid)).data.status == 'active'
+        && (get(/databases/$(database)/documents/visits/$(visitId)/members/$(uid)).data.role == 'owner'
+            || get(/databases/$(database)/documents/visits/$(visitId)/members/$(uid)).data.role == 'editor');
+    }
+
+    // ===============================
+    // Colaboração: Visits
+    // ===============================
+    match /visits/{visitId} {
+      // Read: membro ativo
+      allow read: if isActiveMember(visitId, request.auth.uid);
+
+      // Create: usuário autenticado criando visita própria
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid;
+
+      // Update/delete: apenas owner
+      allow update, delete: if isOwner(visitId, request.auth.uid);
+
+      // Subcoleção: members
+      match /members/{memberUserId} {
+        // Read: membro ativo da visita
+        allow read: if isActiveMember(visitId, request.auth.uid);
+
+        // Create: owner OU bootstrap estrito do owner inicial
+        allow create: if isOwner(visitId, request.auth.uid)
+          || (
+            request.auth.uid == get(/databases/$(database)/documents/visits/$(visitId)).data.userId
+            && memberUserId == request.auth.uid
+            && request.resource.data.userId == request.auth.uid
+            && request.resource.data.visitId == visitId
+            && request.resource.data.role == 'owner'
+            && request.resource.data.status == 'active'
+            && !exists(/databases/$(database)/documents/visits/$(visitId)/members/$(memberUserId))
+          );
+
+        // Update/delete: owner
+        allow update, delete: if isOwner(visitId, request.auth.uid);
+      }
+
+      // Subcoleção: notes
+      match /notes/{noteId} {
+        // Read: membro ativo
+        allow read: if isActiveMember(visitId, request.auth.uid);
+
+        // Create/update: owner ou editor + coerência do visitId
+        allow create, update: if canEditVisit(visitId, request.auth.uid)
+          && request.resource.data.visitId == visitId;
+
+        // Delete: owner ou editor
+        allow delete: if canEditVisit(visitId, request.auth.uid);
+      }
+
+      // Subcoleção: invites
+      match /invites/{inviteId} {
+        // Read/write: apenas owner
+        allow read, write: if isOwner(visitId, request.auth.uid);
+      }
+    }
+
+    // ===============================
     // Notas: hardening com validações
     // ===============================
     match /users/{userId}/notes/{noteId} {
