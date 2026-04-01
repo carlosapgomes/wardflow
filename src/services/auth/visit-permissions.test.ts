@@ -11,6 +11,7 @@ import {
   canManageMembers,
   canManageInvites,
   canDuplicateVisit,
+  getVisitAccessState,
 } from '@/services/auth/visit-permissions';
 
 function createMember(role: 'owner' | 'editor' | 'viewer', status: 'active' | 'removed' = 'active'): VisitMember {
@@ -139,5 +140,27 @@ describe('visit-permissions - canDuplicateVisit', () => {
     expect(canDuplicateVisit(createMember('owner', 'removed'))).toBe(false);
     expect(canDuplicateVisit(createMember('editor', 'removed'))).toBe(false);
     expect(canDuplicateVisit(createMember('viewer', 'removed'))).toBe(false);
+  });
+});
+
+describe('visit-permissions - getVisitAccessState', () => {
+  it('retorna no-membership quando member é undefined', () => {
+    expect(getVisitAccessState(undefined)).toBe('no-membership');
+  });
+
+  it('retorna no-membership quando member é null', () => {
+    expect(getVisitAccessState(null)).toBe('no-membership');
+  });
+
+  it('retorna removed quando member tem status removed', () => {
+    expect(getVisitAccessState(createMember('owner', 'removed'))).toBe('removed');
+    expect(getVisitAccessState(createMember('editor', 'removed'))).toBe('removed');
+    expect(getVisitAccessState(createMember('viewer', 'removed'))).toBe('removed');
+  });
+
+  it('retorna active para membros ativos', () => {
+    expect(getVisitAccessState(createMember('owner'))).toBe('active');
+    expect(getVisitAccessState(createMember('editor'))).toBe('active');
+    expect(getVisitAccessState(createMember('viewer'))).toBe('active');
   });
 });

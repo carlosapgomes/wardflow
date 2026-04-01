@@ -7,7 +7,22 @@ import type { VisitMember } from '@/models/visit-member';
 import { isActiveMember } from '@/models/visit-member';
 
 /**
+ * Estado de acesso do usuário à visita
+ */
+export type VisitAccessState = 'active' | 'removed' | 'no-membership';
+
+/**
+ * Retorna o estado de acesso do usuário à visita
+ */
+export function getVisitAccessState(member?: VisitMember | null): VisitAccessState {
+  if (!member) return 'no-membership';
+  if (member.status === 'removed') return 'removed';
+  return 'active';
+}
+
+/**
  * Verifica se o membro pode visualizar a visita
+ * @deprecated Use getVisitAccessState para obter estado completo
  */
 export function canViewVisit(member: VisitMember): boolean {
   return isActiveMember(member);

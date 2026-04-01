@@ -16,7 +16,7 @@ import {
   type CreateNoteInput,
 } from '@/services/db/notes-service';
 import { getCurrentUserVisitMember } from '@/services/db/visit-members-service';
-import { canEditNote } from '@/services/auth/visit-permissions';
+import { canEditNote, getVisitAccessState, type VisitAccessState } from '@/services/auth/visit-permissions';
 import { NOTE_CONSTANTS } from '@/models/note';
 import { applyInputCase, getInputPreferences } from '@/services/settings/settings-service';
 
@@ -38,6 +38,7 @@ export class NewNoteView extends LitElement {
   @state() private error = '';
   @state() private canEdit = false;
   @state() private permissionChecked = false;
+  @state() private accessState: VisitAccessState = 'no-membership';
 
   private get isEditMode(): boolean {
     return this.noteId !== null;
@@ -78,12 +79,18 @@ export class NewNoteView extends LitElement {
 
     try {
       const member = await getCurrentUserVisitMember(this.visitId);
+      this.accessState = getVisitAccessState(member);
       this.canEdit = member ? canEditNote(member) : false;
     } catch {
+      this.accessState = 'no-membership';
       this.canEdit = false;
     } finally {
       this.permissionChecked = true;
     }
+  }
+
+  private isUserRemoved(): boolean {
+    return this.accessState === 'removed';
   }
 
   private async loadNote(): Promise<void> {
@@ -225,6 +232,26 @@ export class NewNoteView extends LitElement {
         <main class="container-fluid wf-page-container wf-with-header pb-4">
           <div class="d-flex align-items-center justify-content-center text-secondary" style="min-height: 50vh;">
             Verificando permissões...
+          </div>
+        </main>
+      `;
+    }
+
+    if (this.isUserRemoved()) {
+      return html`
+        <app-header title="Acesso removido"></app-header>
+        <main class="container-fluid wf-page-container wf-with-header pb-4">
+          <div class="d-flex flex-column align-items-center justify-content-center text-center" style="min-height: 50vh;">
+            <div class="mb-4">
+              <svg class="mx-auto text-secondary opacity-75" width="48" height="48" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+              </svg>
+            </div>
+            <h5 class="text-dark mb-2">Acesso removido</h5>
+            <p class="text-secondary mb-4">Seu acesso a esta visita foi removido.</p>
+            <button type="button" class="btn btn-primary" @click=${() => { navigate('/dashboard'); }}>
+              Ir para minhas visitas
+            </button>
           </div>
         </main>
       `;

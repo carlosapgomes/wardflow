@@ -10,7 +10,7 @@ import { navigate, getCurrentRoute } from '@/router/router';
 import { getAllNotes, deleteNotes } from '@/services/db/notes-service';
 import { getVisitById } from '@/services/db/visits-service';
 import { getCurrentUserVisitMember } from '@/services/db/visit-members-service';
-import { canViewVisit, canEditNote, canDeleteNote } from '@/services/auth/visit-permissions';
+import { canEditNote, canDeleteNote, getVisitAccessState, type VisitAccessState } from '@/services/auth/visit-permissions';
 import { getDashboardGroupActions } from '@/services/auth/dashboard-actions-policy';
 import { groupNotesByDateAndWard } from '@/utils/group-notes-by-date-and-ward';
 import { generateMessage, copyToClipboard, type ExportScope } from '@/services/export/message-export';
@@ -45,6 +45,7 @@ export class DashboardView extends LitElement {
   @state() private isPreviewOpen = false;
   @state() private previewMessage = '';
   @state() private member: VisitMember | null = null;
+  @state() private accessState: VisitAccessState = 'no-membership';
   @state() private actions: DashboardAction[] = [];
   @state() private isDeleteConfirmOpen = false;
 
@@ -73,12 +74,14 @@ export class DashboardView extends LitElement {
 
     try {
       this.member = (await getCurrentUserVisitMember(this.visitId)) ?? null;
+      this.accessState = getVisitAccessState(this.member);
       // Atualiza ações do action sheet baseada na permissão
       const canDelete = this.member ? canDeleteNote(this.member) : false;
       this.actions = getDashboardGroupActions(canDelete);
     } catch {
       // Usuário não autenticado ou erro - sem membership
       this.member = null;
+      this.accessState = 'no-membership';
       this.actions = getDashboardGroupActions(false);
     }
   }
@@ -296,14 +299,39 @@ export class DashboardView extends LitElement {
     this.isActionSheetOpen = false;
   };
 
-  private canUserViewVisit(): boolean {
-    if (!this.member) return false;
-    return canViewVisit(this.member);
+  private isUserRemoved(): boolean {
+    return this.accessState === 'removed';
+  }
+
+  private isUserNoMembership(): boolean {
+    return this.accessState === 'no-membership';
   }
 
   private canUserEditNote(): boolean {
     if (!this.member) return false;
     return canEditNote(this.member);
+  }
+
+  private renderAccessRemoved() {
+    return html`
+      <app-header title="Acesso removido"></app-header>
+      <main class="container-fluid wf-page-container wf-with-header-sync wf-sheet-safe pb-4">
+        <div class="d-flex align-items-center justify-content-center" style="min-height: 55vh;">
+          <div class="card border-0 shadow-sm text-center w-100" style="max-width: 420px;">
+            <div class="card-body p-4">
+              <svg class="mx-auto text-secondary opacity-75 mb-3" width="56" height="56" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+              </svg>
+              <p class="h6 mb-2">Acesso removido</p>
+              <p class="text-secondary mb-3">Seu acesso a esta visita foi removido.</p>
+              <button type="button" class="btn btn-primary" @click=${this.handleBackClick}>
+                Ir para minhas visitas
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    `;
   }
 
   private renderAccessDenied() {
@@ -427,8 +455,13 @@ export class DashboardView extends LitElement {
   }
 
   override render() {
-    // Se não pode visualizar a visita, mostra acesso negado
-    if (!this.canUserViewVisit()) {
+    // Usuário removido da visita - mensagem específica
+    if (this.isUserRemoved()) {
+      return this.renderAccessRemoved();
+    }
+
+    // Sem membership - acesso negado genérico
+    if (this.isUserNoMembership()) {
       return this.renderAccessDenied();
     }
 
