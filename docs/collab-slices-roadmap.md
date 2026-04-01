@@ -56,7 +56,7 @@
 | S3B1 | DONE | Persistência local de convites + testes de serviço | `prompts/collab-slice3b1-invite-local-persistence-handoff-prompt.md` |
 | S3B2 | DONE | Aceitar convite por token + rota/view | `prompts/collab-slice3b2-accept-invite-by-token-handoff-prompt.md` |
 | S4A | DONE | Remoção de membro owner-only (serviço + testes) | `prompts/collab-slice4a-owner-remove-member-handoff-prompt.md` |
-| S4B | TODO | UX de revogação (feedback/fluxo) | (gerar) |
+| S4B | TODO | UX de revogação (feedback/fluxo) | `docs/collab-slice4b-revocation-ux-handoff-prompt.md` |
 | S5A | TODO | Firestore schema colaborativo + rules ACL | (gerar) |
 | S5B | TODO | Sync push/pull por visita | (gerar) |
 | S5C | TODO | Conflitos offline (`delete > update`) + descarte pós-revogação | (gerar) |
