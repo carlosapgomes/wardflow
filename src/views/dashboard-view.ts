@@ -16,7 +16,7 @@ import { groupNotesByDateAndTag } from '@/utils/group-notes-by-date-and-tag';
 import { generateMessage, copyToClipboard, type ExportScope } from '@/services/export/message-export';
 import type { Note } from '@/models/note';
 import type { VisitMember } from '@/models/visit-member';
-import type { WardGroupData } from '@/components/groups/date-group';
+import type { TagGroupData } from '@/components/groups/date-group';
 import type { DashboardAction } from '@/services/auth/dashboard-actions-policy';
 import '../components/base/fab-button';
 import '../components/groups/date-group';
@@ -27,8 +27,8 @@ import '../components/feedback/sync-status-bar';
 
 /** Tipo de escopo selecionado */
 type SelectedScope =
-  | { type: 'date'; date: string; wards: WardGroupData[] }
-  | { type: 'ward'; ward: string; notes: Note[] }
+  | { type: 'date'; date: string; tags: TagGroupData[] }
+  | { type: 'tag'; tag: string; notes: Note[] }
   | null;
 
 @customElement('dashboard-view')
@@ -143,21 +143,21 @@ export class DashboardView extends LitElement {
 
   private handleDateAction = (e: CustomEvent<{
     date: string;
-    wards: WardGroupData[];
+    tags: TagGroupData[];
     scopeType: 'date';
   }>) => {
-    this.selectedScope = { type: 'date', date: e.detail.date, wards: e.detail.wards };
+    this.selectedScope = { type: 'date', date: e.detail.date, tags: e.detail.tags };
     this.selectedTitle = this.formatDateForDisplay(e.detail.date);
     this.isActionSheetOpen = true;
   };
 
-  private handleWardAction = (e: CustomEvent<{
-    ward: string;
+  private handleTagAction = (e: CustomEvent<{
+    tag: string;
     notes: Note[];
-    scopeType: 'ward';
+    scopeType: 'tag';
   }>) => {
-    this.selectedScope = { type: 'ward', ward: e.detail.ward, notes: e.detail.notes };
-    this.selectedTitle = e.detail.ward;
+    this.selectedScope = { type: 'tag', tag: e.detail.tag, notes: e.detail.notes };
+    this.selectedTitle = e.detail.tag;
     this.isActionSheetOpen = true;
   };
 
@@ -187,9 +187,20 @@ export class DashboardView extends LitElement {
   private buildExportScope(): ExportScope | null {
     if (!this.selectedScope) return null;
 
-    return this.selectedScope.type === 'date'
-      ? { type: 'date', date: this.selectedScope.date, wards: this.selectedScope.wards }
-      : { type: 'ward', ward: this.selectedScope.ward, notes: this.selectedScope.notes };
+    // Map tag scope to ward for export compatibility (S9A will update export service)
+    switch (this.selectedScope.type) {
+      case 'tag':
+        return { type: 'ward', ward: this.selectedScope.tag, notes: this.selectedScope.notes };
+      case 'date':
+        return {
+          type: 'date',
+          date: this.selectedScope.date,
+          wards: this.selectedScope.tags.map(t => ({ ward: t.tag, notes: t.notes })),
+        };
+    }
+
+    // For backwards compatibility - should never reach here
+    return null;
   }
 
   private async handleCopyMessage(): Promise<void> {
@@ -253,12 +264,12 @@ export class DashboardView extends LitElement {
   private getNoteIdsToDelete(): string[] {
     if (!this.selectedScope) return [];
 
-    if (this.selectedScope.type === 'ward') {
+    if (this.selectedScope.type === 'tag') {
       return this.selectedScope.notes.map(n => n.id);
     }
 
-    // Para date, coleta todos os IDs de todas as wards
-    return this.selectedScope.wards.flatMap(w => w.notes.map(n => n.id));
+    // Para date, coleta todos os IDs de todas as tags
+    return this.selectedScope.tags.flatMap(t => t.notes.map(n => n.id));
   }
 
   private handleDeleteConfirm = async (): Promise<void> => {
@@ -377,22 +388,15 @@ export class DashboardView extends LitElement {
     // Agrupar por data e tag (nova lógica S8A)
     const groupedNotes = groupNotesByDateAndTag(this.notes);
 
-    // Adaptar estrutura de tags para wards (compatibilidade com componentes atuais)
-    // S8B criará componente específico para tags
-    const adaptedGroups = groupedNotes.map(group => ({
-      date: group.date,
-      wards: group.tags.map(t => ({ ward: t.tag, notes: t.notes })),
-    }));
-
     return html`
       <div class="d-flex flex-column gap-3" @note-click=${this.handleNoteClick}>
-        ${adaptedGroups.map(
+        ${groupedNotes.map(
           group => html`
             <date-group
               .date=${group.date}
-              .wards=${group.wards}
+              .tags=${group.tags}
               @date-action=${this.handleDateAction}
-              @ward-action=${this.handleWardAction}
+              @tag-action=${this.handleTagAction}
             ></date-group>
           `
         )}
@@ -495,8 +499,8 @@ export class DashboardView extends LitElement {
     let scopeLabel = '';
     if (this.selectedScope?.type === 'date') {
       scopeLabel = 'desta data';
-    } else if (this.selectedScope?.type === 'ward') {
-      scopeLabel = 'desta ala';
+    } else if (this.selectedScope?.type === 'tag') {
+      scopeLabel = 'desta tag';
     }
 
     return html`

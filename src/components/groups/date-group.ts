@@ -6,17 +6,23 @@
 import { LitElement, html } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 import type { Note } from '@/models/note';
-import '../groups/ward-group';
+import '../groups/tag-group';
 
-/** Estrutura de wards agrupadas (mesma do utils/group-notes-by-date-and-ward) */
-export interface WardGroupData {
-  ward: string;
+/** Estrutura de tags agrupadas (do utils/group-notes-by-date-and-tag) */
+export interface TagGroupData {
+  tag: string;
   notes: Note[];
 }
+
+/** @deprecated Use TagGroupData */
+export type WardGroupData = TagGroupData;
 
 @customElement('date-group')
 export class DateGroup extends LitElement {
   @property({ type: String }) date = '';
+  @property({ type: Array }) tags: TagGroupData[] = [];
+
+  /** @deprecated Use tags */
   @property({ type: Array }) wards: WardGroupData[] = [];
 
   protected override createRenderRoot(): HTMLElement {
@@ -31,13 +37,20 @@ export class DateGroup extends LitElement {
     return `${day}-${month}-${year}`;
   }
 
+  private getTagsData(): TagGroupData[] {
+    // Prioritize tags if provided, fallback to wards for backwards compatibility
+    return this.tags.length > 0 ? this.tags : this.wards;
+  }
+
   private handleActionClick = (e: Event) => {
     e.stopPropagation();
+    const tagsData = this.getTagsData();
     this.dispatchEvent(
       new CustomEvent('date-action', {
         detail: {
           date: this.date,
-          wards: this.wards,
+          tags: tagsData,
+          wards: tagsData, // compatibility for S9A
           scopeType: 'date',
         },
         bubbles: true,
@@ -56,9 +69,9 @@ export class DateGroup extends LitElement {
           </button>
         </div>
         <div class="card-body p-0">
-          ${this.wards.map(
-            wardGroup =>
-              html`<ward-group .ward=${wardGroup.ward} .notes=${wardGroup.notes}></ward-group>`
+          ${this.getTagsData().map(
+            tagGroup =>
+              html`<tag-group .tag=${tagGroup.tag} .notes=${tagGroup.notes}></tag-group>`
           )}
         </div>
       </section>
