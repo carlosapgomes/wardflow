@@ -62,7 +62,7 @@
 | S5C | DONE | Conflitos offline (`delete > update`) + descarte pós-revogação | `docs/collab-slice5c-delete-wins-revocation-discard-handoff-prompt.md` |
 | S5D | DONE | Realtime apenas da visita aberta | `docs/collab-slice5d-active-visit-realtime-handoff-prompt.md` |
 | S6A | DONE | Duplicar visita (nova data, novo owner) | `docs/collab-slice6a-duplicate-visit-private-owner-handoff-prompt.md` |
-| S7A | TODO | Base de tags (`ward` -> `tags[]`) | (gerar) |
+| S7A | DONE | Base de tags (`ward` -> `tags[]`) | `docs/collab-slice7a-tags-foundation-handoff-prompt.md` |
 | S7B | TODO | UI múltiplas tags + remover-tag-ou-nota | (gerar) |
 | S8A | TODO | Agrupamento dashboard por tags (TDD) | (gerar) |
 | S8B | TODO | Componente de grupo por tag + actions | (gerar) |
@@ -89,8 +89,9 @@
 - S5C: `8ba4d94`
 - S5D: `1e82d60`
 - S6A: `c977b27`
+- S7A: `fcd5be7`
 
-Estado atual validado localmente: typecheck/lint/test verdes (201 testes).
+Estado atual validado localmente: typecheck/lint/test verdes (217 testes).
 
 ---
 
