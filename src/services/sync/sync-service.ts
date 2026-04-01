@@ -22,6 +22,7 @@ import {
   setDoc,
   updateDoc,
   increment,
+  onSnapshot,
   type DocumentData,
   type Firestore,
   type UpdateData,
@@ -50,6 +51,116 @@ const SYNC_INTERVAL_MS = 60000;
 let isSyncInitialized = false;
 let onlineHandler: (() => void) | null = null;
 let periodicSyncIntervalId: number | null = null;
+
+// ============================================================================
+// Realtime da visita ativa (S5D)
+// ============================================================================
+
+let activeVisitRealtimeUnsubscribe: (() => void) | null = null;
+let activeVisitRealtimeId: string | null = null;
+
+/**
+ * Ativa listener realtime de notas para a visita aberta.
+ * Encerra listener anterior ao trocar visitId.
+ * Pass null para desativar.
+ */
+export function setActiveVisitRealtime(visitId: string | null): void {
+  // Se mesma visita, no-op
+  if (visitId === activeVisitRealtimeId && activeVisitRealtimeUnsubscribe) {
+    return;
+  }
+
+  // Encerra listener anterior
+  if (activeVisitRealtimeUnsubscribe) {
+    activeVisitRealtimeUnsubscribe();
+    activeVisitRealtimeUnsubscribe = null;
+    activeVisitRealtimeId = null;
+    console.log('[VisitaMed] Realtime da visita anterior encerrado');
+  }
+
+  // Se null ou sem auth, sai aqui
+  if (!visitId) {
+    return;
+  }
+
+  const { user } = getAuthState();
+  if (!user) {
+    return;
+  }
+
+  const firestore = getFirebaseFirestore();
+  if (!firestore) {
+    return;
+  }
+
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    console.log('[VisitaMed] Offline, não iniciando realtime');
+    return;
+  }
+
+  // Inicia novo listener
+  const notesRef = collection(firestore, 'visits', visitId, 'notes');
+  const unsubscribe = onSnapshot(
+    notesRef,
+    (snapshot) => {
+      const docs = snapshot.docs;
+      const remoteNotes: Note[] = [];
+
+      // Processar notas em background sem bloquear
+      void (async () => {
+        for (const docSnap of docs) {
+          const data = docSnap.data() as FirestoreNoteData;
+          const remoteNote = convertFirestoreNoteToLocal(docSnap.id, data, user.uid);
+
+          // Buscar nota local para resolver conflito
+          const localNote = await db.notes.get(docSnap.id);
+          const resolvedNote = resolveNoteConflict(localNote, remoteNote);
+          remoteNotes.push(resolvedNote);
+        }
+
+        // Bulk upsert das notas resolvidas
+        if (remoteNotes.length > 0) {
+          await db.notes.bulkPut(remoteNotes);
+          console.log(`[VisitaMed] Realtime: ${String(remoteNotes.length)} notas sincronizadas`);
+        }
+
+        // Reconciliar removidas: remover localmente apenas notas synced
+        const remoteIds = new Set(remoteNotes.map((n) => n.id));
+        const localSyncedNotes = await db.notes
+          .where({ visitId, syncStatus: 'synced' })
+          .toArray();
+
+        const orphanedIds = localSyncedNotes
+          .filter((n) => !remoteIds.has(n.id))
+          .map((n) => n.id);
+
+        if (orphanedIds.length > 0) {
+          await db.notes.bulkDelete(orphanedIds);
+          console.log(`[VisitaMed] Realtime: ${String(orphanedIds.length)} notas removidas (synced)`);
+        }
+      })();
+    },
+    (error) => {
+      console.warn('[VisitaMed] Erro no realtime de notas:', error);
+    }
+  );
+
+  activeVisitRealtimeUnsubscribe = unsubscribe;
+  activeVisitRealtimeId = visitId;
+  console.log(`[VisitaMed] Realtime ativo para visita ${visitId}`);
+}
+
+/**
+ * Cleanup do listener realtime
+ */
+function cleanupActiveVisitRealtime(): void {
+  if (activeVisitRealtimeUnsubscribe) {
+    activeVisitRealtimeUnsubscribe();
+    activeVisitRealtimeUnsubscribe = null;
+    activeVisitRealtimeId = null;
+    console.log('[VisitaMed] Realtime da visita limpo');
+  }
+}
 
 /**
  * Helper puro: verifica se item de nota deve ser pulado por haver delete posterior na fila.
@@ -148,6 +259,8 @@ export function initializeSync(): void {
  * Cleanup da orquestração automática de sync
  */
 export function cleanupSync(): void {
+  cleanupActiveVisitRealtime();
+
   if (typeof window !== 'undefined' && onlineHandler) {
     window.removeEventListener('online', onlineHandler);
     onlineHandler = null;

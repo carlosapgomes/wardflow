@@ -17,6 +17,7 @@ import {
   pullRemoteSettings,
   pullRemoteWardStats,
   syncNow,
+  setActiveVisitRealtime,
 } from '@/services/sync/sync-service';
 
 // Import layout components
@@ -74,6 +75,18 @@ export class VisitaMedApp extends LitElement {
       if (!state.loading && state.user) {
         void this.performSync();
       }
+
+      // S5D: alinhar listener realtime com auth/rota atual
+      if (!state.loading) {
+        const currentRoute = getCurrentRoute();
+        const currentVisitId = currentRoute?.params['visitId'] ?? null;
+
+        if (state.user) {
+          setActiveVisitRealtime(currentVisitId);
+        } else {
+          setActiveVisitRealtime(null);
+        }
+      }
     });
 
     // Inicializa router
@@ -95,6 +108,10 @@ export class VisitaMedApp extends LitElement {
 
   private handleRouteChange(match: RouteMatch): void {
     this.currentComponent = match.route.component;
+
+    // S5D: ativa/desativa realtime conforme a visita aberta
+    const visitId = match.params['visitId'] as string | undefined ?? null;
+    setActiveVisitRealtime(visitId);
   }
 
   /**
