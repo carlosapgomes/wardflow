@@ -59,8 +59,8 @@
 | S4B | DONE | UX de revogação (feedback/fluxo) | `docs/collab-slice4b-revocation-ux-handoff-prompt.md` |
 | S5A | DONE | Firestore schema colaborativo + rules ACL | `docs/collab-slice5a-firestore-acl-baseline-handoff-prompt.md` |
 | S5B | DONE | Sync push/pull por visita | `docs/collab-slice5b-visit-sync-push-pull-handoff-prompt.md` |
-| S5C | TODO | Conflitos offline (`delete > update`) + descarte pós-revogação | `docs/collab-slice5c-delete-wins-revocation-discard-handoff-prompt.md` |
-| S5D | TODO | Realtime apenas da visita aberta | (gerar) |
+| S5C | DONE | Conflitos offline (`delete > update`) + descarte pós-revogação | `docs/collab-slice5c-delete-wins-revocation-discard-handoff-prompt.md` |
+| S5D | TODO | Realtime apenas da visita aberta | `docs/collab-slice5d-active-visit-realtime-handoff-prompt.md` |
 | S6A | TODO | Duplicar visita (nova data, novo owner) | (gerar) |
 | S7A | TODO | Base de tags (`ward` -> `tags[]`) | (gerar) |
 | S7B | TODO | UI múltiplas tags + remover-tag-ou-nota | (gerar) |
@@ -86,8 +86,9 @@
 - S4B: `04a488e`
 - S5A: `8ab17a7`
 - S5B: `02339f1`
+- S5C: `8ba4d94`
 
-Estado atual validado localmente: typecheck/lint/test verdes (181 testes).
+Estado atual validado localmente: typecheck/lint/test verdes (195 testes).
 
 ---
 
