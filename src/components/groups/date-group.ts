@@ -14,16 +14,10 @@ export interface TagGroupData {
   notes: Note[];
 }
 
-/** @deprecated Use TagGroupData */
-export type WardGroupData = TagGroupData;
-
 @customElement('date-group')
 export class DateGroup extends LitElement {
   @property({ type: String }) date = '';
   @property({ type: Array }) tags: TagGroupData[] = [];
-
-  /** @deprecated Use tags */
-  @property({ type: Array }) wards: WardGroupData[] = [];
 
   protected override createRenderRoot(): HTMLElement {
     return this;
@@ -37,20 +31,13 @@ export class DateGroup extends LitElement {
     return `${day}-${month}-${year}`;
   }
 
-  private getTagsData(): TagGroupData[] {
-    // Prioritize tags if provided, fallback to wards for backwards compatibility
-    return this.tags.length > 0 ? this.tags : this.wards;
-  }
-
   private handleActionClick = (e: Event) => {
     e.stopPropagation();
-    const tagsData = this.getTagsData();
     this.dispatchEvent(
       new CustomEvent('date-action', {
         detail: {
           date: this.date,
-          tags: tagsData,
-          wards: tagsData, // compatibility for S9A
+          tags: this.tags,
           scopeType: 'date',
         },
         bubbles: true,
@@ -69,7 +56,7 @@ export class DateGroup extends LitElement {
           </button>
         </div>
         <div class="card-body p-0">
-          ${this.getTagsData().map(
+          ${this.tags.map(
             tagGroup =>
               html`<tag-group .tag=${tagGroup.tag} .notes=${tagGroup.notes}></tag-group>`
           )}

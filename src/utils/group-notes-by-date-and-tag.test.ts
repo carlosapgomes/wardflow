@@ -34,18 +34,14 @@ describe('groupNotesByDateAndTag', () => {
     expect(result).toEqual([]);
   });
 
-  it('nota sem tags usa ward como fallback', () => {
+  it('nota sem tags válidas não entra em grupo', () => {
     const notes: Note[] = [
       createTestNote({ id: '1', date: '2024-03-25', ward: 'UTI', tags: [] }),
     ];
 
     const result = groupNotesByDateAndTag(notes);
 
-    expect(result).toHaveLength(1);
-    expect(result[0].date).toBe('2024-03-25');
-    expect(result[0].tags).toHaveLength(1);
-    expect(result[0].tags[0].tag).toBe('UTI');
-    expect(result[0].tags[0].notes).toHaveLength(1);
+    expect(result).toHaveLength(0);
   });
 
   it('nota com tags usa as tags como grupo', () => {
@@ -188,17 +184,18 @@ describe('groupNotesByDateAndTag', () => {
     expect(result[0].tags[0].notes).toHaveLength(2);
   });
 
-  it('notas sem tags de diferentes wards gera grupos por ward', () => {
+  it('ignora notas sem tags em lote misto', () => {
     const notes: Note[] = [
-      createTestNote({ id: '1', date: '2024-03-25', ward: 'UTI', tags: [] }),
+      createTestNote({ id: '1', date: '2024-03-25', tags: ['UTI'] }),
       createTestNote({ id: '2', date: '2024-03-25', ward: 'Enfermaria', tags: [] }),
     ];
 
     const result = groupNotesByDateAndTag(notes);
 
     expect(result).toHaveLength(1);
-    expect(result[0].tags).toHaveLength(2);
-    expect(result[0].tags.map(t => t.tag)).toContain('UTI');
-    expect(result[0].tags.map(t => t.tag)).toContain('ENFERMARIA');
+    expect(result[0].tags).toHaveLength(1);
+    expect(result[0].tags[0].tag).toBe('UTI');
+    expect(result[0].tags[0].notes).toHaveLength(1);
+    expect(result[0].tags[0].notes[0].id).toBe('1');
   });
 });

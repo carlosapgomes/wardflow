@@ -5,7 +5,7 @@
 
 import { db } from './dexie-db';
 import { createNote, NOTE_CONSTANTS, type Note } from '@/models/note';
-import { deriveTagsFromWard, normalizeTagList, normalizeTagValue } from '@/models/tag';
+import { normalizeTagList, normalizeTagValue } from '@/models/tag';
 import { createSyncQueueItem } from '@/models/sync-queue';
 import { isNoteActive } from '@/utils/note-expiration';
 import { getAuthState } from '@/services/auth/auth-service';
@@ -145,9 +145,11 @@ async function recordWardUsageAndQueueSync(
 export async function saveNote(input: CreateNoteInput): Promise<Note> {
   const userId = requireUserId();
 
-  // Normaliza tags fornecidas ou usa fallback derivadas do ward
-  const normalizedTags = normalizeTagList(input.tags ?? [], 10);
-  const tags = normalizedTags.length > 0 ? normalizedTags : deriveTagsFromWard(input.ward.trim());
+  const tags = normalizeTagList(input.tags ?? [], NOTE_CONSTANTS.MAX_TAGS_PER_NOTE);
+
+  if (tags.length === 0) {
+    throw new Error('Informe ao menos 1 tag');
+  }
 
   const note = createNote({
     userId,
@@ -264,11 +266,14 @@ export async function getWardSuggestionsWithFallback(): Promise<string[]> {
  * Valida se os campos obrigatórios estão preenchidos
  */
 export function validateNoteInput(input: CreateNoteInput): boolean {
+  const normalizedTags = normalizeTagList(input.tags ?? [], NOTE_CONSTANTS.MAX_TAGS_PER_NOTE);
+
   return (
     input.ward.trim().length > 0 &&
     input.bed.trim().length > 0 &&
     input.note.trim().length > 0 &&
-    input.note.length <= NOTE_CONSTANTS.MAX_NOTE_LENGTH
+    input.note.length <= NOTE_CONSTANTS.MAX_NOTE_LENGTH &&
+    normalizedTags.length > 0
   );
 }
 
@@ -356,16 +361,17 @@ export async function updateNote(
     newWardValue !== undefined &&
     normalizeWardKey(oldWardValue) !== normalizeWardKey(newWardValue);
 
-  // Derivar novas tags a partir do ward (se mudou) ou normalizar tags fornecidas
+  // Tags são fonte de verdade: apenas normalizar quando fornecidas explicitamente
   let tagsUpdate: Partial<Note> = {};
-  
+
   if (updates.tags !== undefined) {
-    // Tags fornecidas explicitamente - normalizar
-    const normalizedTags = normalizeTagList(updates.tags, 10);
-    tagsUpdate = { tags: normalizedTags.length > 0 ? normalizedTags : deriveTagsFromWard(newWardValue ?? existingNote.ward) };
-  } else if (wardChanged && newWardValue) {
-    // Ward mudou, derivar tags do novo ward
-    tagsUpdate = { tags: deriveTagsFromWard(newWardValue) };
+    const normalizedTags = normalizeTagList(updates.tags, NOTE_CONSTANTS.MAX_TAGS_PER_NOTE);
+
+    if (normalizedTags.length === 0) {
+      throw new Error('Nota deve ter ao menos 1 tag');
+    }
+
+    tagsUpdate = { tags: normalizedTags };
   }
 
   // Transação atômica: nota + wardStat (se mudou) + sync queue

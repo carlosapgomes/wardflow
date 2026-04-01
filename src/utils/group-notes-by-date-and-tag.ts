@@ -5,12 +5,11 @@
  * Regras:
  * - agrupar por data + tag
  * - nota com múltiplas tags aparece em múltiplos grupos (fan-out)
- * - fallback para ward quando sem tags
  * - ordenação: data desc, tag asc, notas createdAt desc
  * - evitar duplicata da mesma nota no mesmo grupo
  */
 
-import { normalizeTagList, normalizeTagValue } from '@/models/tag';
+import { normalizeTagList } from '@/models/tag';
 import type { Note } from '@/models/note';
 
 /**
@@ -34,7 +33,7 @@ export interface GroupedNotesByTag {
  *
  * Regras de negócio:
  * - Nota com múltiplas tags aparece em todos os grupos de tag (fan-out)
- * - Nota sem tags usa 'ward' como fallback
+ * - Notas sem tags válidas não entram em grupos
  * - Tags repetidas na mesma nota são dedupadas
  *
  * @param notes Lista de notas a agrupar
@@ -62,16 +61,14 @@ export function groupNotesByDateAndTag(notes: Note[]): GroupedNotesByTag[] {
 
     for (const note of dateNotes) {
       // Normalizar e dedupar tags da nota
-      const noteTags = normalizeTagList(note.tags ?? []);
+      const uniqueTags = [...new Set(normalizeTagList(note.tags ?? []))];
 
-      // Se não tiver tags, usar ward como fallback (normalizado)
-      const effectiveTags = noteTags.length > 0
-        ? noteTags
-        : [normalizeTagValue(note.ward)];
+      // Nota sem tags válidas não participa do agrupamento
+      if (uniqueTags.length === 0) {
+        continue;
+      }
 
       // Para cada tag efetiva, adicionar a nota ao grupo (fan-out)
-      // Usar Set para dedupar tags repetidas na mesma nota
-      const uniqueTags = [...new Set(effectiveTags)];
 
       for (const tag of uniqueTags) {
         const existing = byTag.get(tag) ?? [];
@@ -93,7 +90,9 @@ export function groupNotesByDateAndTag(notes: Note[]): GroupedNotesByTag[] {
         ),
       }));
 
-    result.push({ date, tags: sortedTags });
+    if (sortedTags.length > 0) {
+      result.push({ date, tags: sortedTags });
+    }
   }
 
   // Ordenar datas: mais recentes primeiro (desc)

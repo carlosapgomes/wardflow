@@ -203,7 +203,7 @@ export class NewNoteView extends LitElement {
     };
 
     if (!validateNoteInput(input)) {
-      this.error = 'Preencha os campos obrigatórios: Ala, Leito e Nota';
+      this.error = 'Preencha os campos obrigatórios: Ala, Leito, Nota e ao menos 1 Tag';
       return;
     }
 
@@ -272,7 +272,7 @@ export class NewNoteView extends LitElement {
 
   override render() {
     const isBusy = this.saving || this.deleting;
-    const canSave = !isBusy && this.ward && this.bed && this.note;
+    const canSave = !isBusy && this.ward && this.bed && this.note && this.tags.length > 0;
     const title = this.isEditMode ? 'Editar Nota' : 'Nova Nota';
     const saveLabel = this.saving ? 'Salvando...' : 'Salvar';
 
@@ -396,7 +396,7 @@ export class NewNoteView extends LitElement {
             </div>
 
             <div class="mb-3">
-              <label for="tags" class="form-label">Tags (opcional)</label>
+              <label for="tags" class="form-label">Tags *</label>
               <div class="input-group">
                 <input
                   id="tags"

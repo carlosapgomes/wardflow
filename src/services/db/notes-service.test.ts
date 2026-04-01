@@ -1,17 +1,18 @@
 /**
- * Testes para notes-service - validação de input e funções pura
+ * Testes para notes-service - validação de input e funções puras
  */
 
 import { describe, it, expect } from 'vitest';
 import * as notesService from './notes-service';
 
 describe('notes-service - validateNoteInput', () => {
-  it('deve retornar true para input válido', () => {
+  it('deve retornar true para input válido com tags', () => {
     const input = {
       visitId: 'visit-123',
       ward: 'UTI',
       bed: '01',
       note: 'Nota válida',
+      tags: ['UTI'],
     };
 
     expect(notesService.validateNoteInput(input)).toBe(true);
@@ -23,6 +24,7 @@ describe('notes-service - validateNoteInput', () => {
       ward: '',
       bed: '01',
       note: 'Nota válida',
+      tags: ['UTI'],
     };
 
     expect(notesService.validateNoteInput(input)).toBe(false);
@@ -34,6 +36,7 @@ describe('notes-service - validateNoteInput', () => {
       ward: 'UTI',
       bed: '',
       note: 'Nota válida',
+      tags: ['UTI'],
     };
 
     expect(notesService.validateNoteInput(input)).toBe(false);
@@ -45,6 +48,7 @@ describe('notes-service - validateNoteInput', () => {
       ward: 'UTI',
       bed: '01',
       note: '',
+      tags: ['UTI'],
     };
 
     expect(notesService.validateNoteInput(input)).toBe(false);
@@ -57,6 +61,7 @@ describe('notes-service - validateNoteInput', () => {
       ward: 'UTI',
       bed: '01',
       note: longNote,
+      tags: ['UTI'],
     };
 
     expect(notesService.validateNoteInput(input)).toBe(false);
@@ -69,18 +74,19 @@ describe('notes-service - validateNoteInput', () => {
       ward: 'UTI',
       bed: '01',
       note: exactNote,
+      tags: ['UTI'],
     };
 
     expect(notesService.validateNoteInput(input)).toBe(true);
   });
 
-  it('deve retornar true para input com espaços em branco que serão trimmed', () => {
-    // O validateNoteInput não faz trim, apenas verifica se os campos estão vazios após trim
+  it('deve retornar false para input com ward em branco após trim', () => {
     const input = {
       visitId: 'visit-123',
       ward: '   ',
       bed: '01',
       note: 'Nota',
+      tags: ['UTI'],
     };
 
     expect(notesService.validateNoteInput(input)).toBe(false);
@@ -100,7 +106,7 @@ describe('notes-service - CreateNoteInput com tags', () => {
     expect(notesService.validateNoteInput(input)).toBe(true);
   });
 
-  it('deve aceitar tags vazio', () => {
+  it('deve rejeitar tags vazio', () => {
     const input = {
       visitId: 'visit-123',
       ward: 'UTI',
@@ -109,10 +115,10 @@ describe('notes-service - CreateNoteInput com tags', () => {
       tags: [],
     };
 
-    expect(notesService.validateNoteInput(input)).toBe(true);
+    expect(notesService.validateNoteInput(input)).toBe(false);
   });
 
-  it('deve aceitar tags undefined', () => {
+  it('deve rejeitar tags undefined', () => {
     const input = {
       visitId: 'visit-123',
       ward: 'UTI',
@@ -120,6 +126,6 @@ describe('notes-service - CreateNoteInput com tags', () => {
       note: 'Nota válida',
     };
 
-    expect(notesService.validateNoteInput(input)).toBe(true);
+    expect(notesService.validateNoteInput(input)).toBe(false);
   });
 });

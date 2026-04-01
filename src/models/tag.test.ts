@@ -7,7 +7,6 @@ import { describe, it, expect } from 'vitest';
 import {
   normalizeTagValue,
   normalizeTagList,
-  deriveTagsFromWard,
 } from './tag';
 
 describe('normalizeTagValue', () => {
@@ -85,21 +84,3 @@ describe('normalizeTagList', () => {
   });
 });
 
-describe('deriveTagsFromWard', () => {
-  it('deve derivar tag única a partir de ward', () => {
-    const result = deriveTagsFromWard('UTI');
-    expect(result).toEqual(['UTI']);
-  });
-
-  it('deve normalizar ward antes de criar tag', () => {
-    const result = deriveTagsFromWard('  uti  ');
-    expect(result).toEqual(['UTI']);
-  });
-
-  it('deve retornar lista vazia para ward vazio', () => {
-    const result = deriveTagsFromWard('');
-    expect(result).toEqual([]);
-    const result2 = deriveTagsFromWard('   ');
-    expect(result2).toEqual([]);
-  });
-});

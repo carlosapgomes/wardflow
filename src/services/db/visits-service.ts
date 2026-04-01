@@ -7,6 +7,7 @@ import { db } from './dexie-db';
 import { createVisit, generatePrivateVisitName, getCurrentDate, type Visit } from '@/models/visit';
 import { createNote, type Note } from '@/models/note';
 import { createSyncQueueItem } from '@/models/sync-queue';
+import { normalizeTagList } from '@/models/tag';
 import { getAuthState } from '@/services/auth/auth-service';
 import { createOwnerVisitMember, getVisitMember } from './visit-members-service';
 import { canDuplicateVisit } from '@/services/auth/visit-permissions';
@@ -158,6 +159,7 @@ export async function duplicateVisitAsPrivate(sourceVisitId: string): Promise<Vi
       bed: note.bed,
       note: note.note,
       reference: note.reference,
+      tags: normalizeTagList(note.tags ?? []),
       syncStatus: 'pending',
     })
   );

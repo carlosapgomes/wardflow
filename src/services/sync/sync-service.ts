@@ -11,7 +11,7 @@ import type { VisitMember } from '@/models/visit-member';
 import type { SyncQueueItem } from '@/models/sync-queue';
 import type { WardStat } from '@/models/ward-stat';
 import { normalizeSettings, SETTINGS_ID, type Settings } from '@/models/settings';
-import { normalizeTagList, deriveTagsFromWard } from '@/models/tag';
+import { normalizeTagList } from '@/models/tag';
 import { getFirebaseFirestore } from '@/services/auth/firebase';
 import { getAuthState } from '@/services/auth/auth-service';
 import {
@@ -986,11 +986,8 @@ function convertFirestoreNoteToLocal(
     console.warn(`[VisitaMed] Dados de nota inválidos (ID: ${id}), usando valores padrão`);
   }
 
-  // Processar tags: usar remotas se válidas, fallback para derived from ward
-  const remoteTags = normalizeTagList(data.tags);
-  const tags = remoteTags.length > 0
-    ? remoteTags
-    : deriveTagsFromWard(data.ward ?? '');
+  // Tags são fonte de verdade
+  const tags = normalizeTagList(data.tags);
 
   return {
     id,

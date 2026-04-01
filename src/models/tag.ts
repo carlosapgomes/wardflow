@@ -62,10 +62,3 @@ export function normalizeTagList(tags: unknown, max = MAX_TAGS_DEFAULT): string[
   return unique.slice(0, max);
 }
 
-/**
- * Gera tags derivadas de ward
- * Útil para derivar tag inicial a partir do campo ward
- */
-export function deriveTagsFromWard(ward: string): string[] {
-  return normalizeTagList([ward], MAX_TAGS_DEFAULT);
-}
