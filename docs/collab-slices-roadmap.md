@@ -76,6 +76,7 @@
 | S12A | DONE | UX tags-first: remover campo ala da tela de nota + header fixo do app | `docs/collab-slice12a-tags-first-ui-header-handoff-prompt.md` |
 | S12B | DONE | Core tags-first: remover obrigatoriedade de `ward` em contracts/serviços/rules | `docs/collab-slice12b-core-tags-first-no-ward-required-handoff-prompt.md` |
 | S12C | DONE | Limpeza de legados `ward-*` (stats/settings/sync/tests) | `docs/collab-slice12c-remove-ward-legacy-stack-handoff-prompt.md` |
+| S13A | DONE | Criar visita com nome opcional + dedupe de nomes no mesmo dia | `docs/collab-slice13a-visit-name-input-and-dedupe-handoff-prompt.md` |
 
 ---
 
@@ -111,8 +112,9 @@
 - S12A: `b2eab8b`
 - S12B: `64b14e4`
 - S12C: `95519a5`
+- S13A: `429d546`
 
-Estado atual validado localmente: typecheck/lint/test verdes (209 testes).
+Estado atual validado localmente: typecheck/lint/test verdes (213 testes).
 
 ---
 
