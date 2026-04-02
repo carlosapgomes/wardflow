@@ -87,6 +87,29 @@ async function queueVisitMemberForSyncInTransaction(
 }
 
 /**
+ * Dispara sync imediato em fire-and-forget se online + autenticado
+ * Não bloqueia o fluxo de UI, não lança erro para o usuário
+ */
+function triggerImmediateSync(): void {
+  const { user } = getAuthState();
+
+  if (!user) {
+    return;
+  }
+
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return;
+  }
+
+  // Fire-and-forget: sem await para não bloquear fluxo local
+  void import('@/services/sync/sync-service')
+    .then(({ syncNow }) => syncNow())
+    .catch((error: unknown) => {
+      console.warn('[Visitas] Sync imediato falhou (best-effort):', error);
+    });
+}
+
+/**
  * Cria uma nova visita privada
  * O nome é gerado automaticamente se não fornecido
  * Garante nome único por usuário + data (dedupe automático)
@@ -117,6 +140,9 @@ export async function createPrivateVisit(namePrefix?: string): Promise<Visit> {
     await queueVisitForSyncInTransaction('create', visit);
     await queueVisitMemberForSyncInTransaction('create', ownerMember);
   });
+
+  // Sync imediato se online + autenticado (fire-and-forget)
+  triggerImmediateSync();
 
   return visit;
 }
@@ -245,6 +271,9 @@ export async function duplicateVisitAsPrivate(sourceVisitId: string): Promise<Vi
       }
     }
   );
+
+  // Sync imediato se online + autenticado (fire-and-forget)
+  triggerImmediateSync();
 
   return newVisit;
 }

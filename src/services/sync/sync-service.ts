@@ -799,6 +799,7 @@ async function handleSyncError(item: SyncQueueItem, error: unknown): Promise<voi
 
 /**
  * Tenta sincronizar quando há usuário autenticado
+ * Pipeline completo: push local + pull remoto (memberships/visitas + notas + settings)
  */
 async function syncIfAuthenticated(): Promise<void> {
   const { user, loading } = getAuthState();
@@ -807,8 +808,17 @@ async function syncIfAuthenticated(): Promise<void> {
     return;
   }
 
+  // Pipeline completo nesta ordem:
+  // 1. Push: enviar itens pendentes locais para Firestore
   await syncNow();
+
+  // 2. Pull: hidratar memberships e visitas remotas
+  await pullRemoteVisitMembershipsAndVisits();
+
+  // 3. Pull: hidratar notas remotas
   await pullRemoteNotes();
+
+  // 4. Pull: hidratar settings remotos
   await pullRemoteSettings();
 }
 

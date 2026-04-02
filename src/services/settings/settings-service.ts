@@ -36,6 +36,29 @@ function serializeForSync(settings: Settings): SettingsSyncPayload {
   };
 }
 
+/**
+ * Dispara sync imediato em fire-and-forget se online + autenticado
+ * Não bloqueia o fluxo de UI, não lança erro para o usuário
+ */
+function triggerImmediateSync(): void {
+  const { user } = getAuthState();
+
+  if (!user) {
+    return;
+  }
+
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return;
+  }
+
+  // Fire-and-forget: sem await para não bloquear fluxo local
+  void import('@/services/sync/sync-service')
+    .then(({ syncNow }) => syncNow())
+    .catch((error: unknown) => {
+      console.warn('[Settings] Sync imediato falhou (best-effort):', error);
+    });
+}
+
 async function queueSettingsSyncInTransaction(settings: Settings): Promise<void> {
   const item = createSyncQueueItem(
     settings.userId,
@@ -109,6 +132,9 @@ export async function updateInputPreferences(
   await db.transaction('rw', db.settings, db.syncQueue, async () => {
     await saveSettingsInTransaction(next);
   });
+
+  // Sync imediato se online + autenticado (fire-and-forget)
+  triggerImmediateSync();
 
   return next;
 }

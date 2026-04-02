@@ -42,6 +42,29 @@ function validateOwnership(note: Note, userId: string): void {
 }
 
 /**
+ * Dispara sync imediato em fire-and-forget se online + autenticado
+ * Não bloqueia o fluxo de UI, não lança erro para o usuário
+ */
+function triggerImmediateSync(): void {
+  const { user } = getAuthState();
+
+  if (!user) {
+    return;
+  }
+
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return;
+  }
+
+  // Fire-and-forget: sem await para não bloquear fluxo local
+  void import('@/services/sync/sync-service')
+    .then(({ syncNow }) => syncNow())
+    .catch((error: unknown) => {
+      console.warn('[Notas] Sync imediato falhou (best-effort):', error);
+    });
+}
+
+/**
  * Enfileira operação de sync para nota dentro de transação local
  */
 async function queueNoteForSyncInTransaction(
@@ -79,6 +102,9 @@ export async function saveNote(input: CreateNoteInput): Promise<Note> {
     await db.notes.add(note);
     await queueNoteForSyncInTransaction('create', note);
   });
+
+  // Sync imediato se online + autenticado (fire-and-forget)
+  triggerImmediateSync();
 
   return note;
 }
@@ -161,6 +187,9 @@ export async function deleteNote(noteId: string): Promise<void> {
     await db.notes.delete(noteId);
     await queueNoteForSyncInTransaction('delete', note);
   });
+
+  // Sync imediato se online + autenticado (fire-and-forget)
+  triggerImmediateSync();
 }
 
 /**
@@ -192,6 +221,9 @@ export async function deleteNotes(noteIds: string[]): Promise<void> {
       await queueNoteForSyncInTransaction('delete', note);
     }
   });
+
+  // Sync imediato se online + autenticado (fire-and-forget)
+  triggerImmediateSync();
 }
 
 /**
@@ -241,6 +273,9 @@ export async function updateNote(
       await queueNoteForSyncInTransaction('update', updatedNote);
     }
   });
+
+  // Sync imediato se online + autenticado (fire-and-forget)
+  triggerImmediateSync();
 }
 
 /**
@@ -292,6 +327,9 @@ export async function removeTagFromNote(
       }
     }
   });
+
+  // Sync imediato se online + autenticado (fire-and-forget)
+  triggerImmediateSync();
 
   return remainingTags.length === 0 ? 'deleted' : 'updated';
 }
