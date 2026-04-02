@@ -15,6 +15,7 @@ import {
   initializeSync,
   pullRemoteNotes,
   pullRemoteSettings,
+  pullRemoteVisitMembershipsAndVisits,
   syncNow,
   setActiveVisitRealtime,
 } from '@/services/sync/sync-service';
@@ -146,7 +147,9 @@ export class VisitaMedApp extends LitElement {
    * executa sync sequencialmente (sync + pull)
    */
   private async performSync(): Promise<void> {
+    // S14A: ordem de sync para hidratar memberships/visitas antes do pull de notas
     await syncNow();
+    await pullRemoteVisitMembershipsAndVisits();
     await pullRemoteNotes();
     await pullRemoteSettings();
   }

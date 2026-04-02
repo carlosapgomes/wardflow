@@ -2,9 +2,36 @@
  * Testes para sync-service - funções puras e resolução de conflitos
  */
 
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-var-requires, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/unbound-method */
+
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
-// Mock do Dexie para evitar erros de IndexedDB
+// Mock do auth-service
+vi.mock('@/services/auth/auth-service', () => ({
+  getAuthState: vi.fn(() => ({ user: null, loading: false, error: null })),
+}));
+
+// Mock do firebase
+vi.mock('@/services/auth/firebase', () => ({
+  getFirebaseFirestore: vi.fn(() => ({})),
+}));
+
+// Mock das funções do Firestore
+vi.mock('firebase/firestore', () => ({
+  collection: vi.fn(),
+  collectionGroup: vi.fn(),
+  doc: vi.fn(),
+  setDoc: vi.fn(),
+  updateDoc: vi.fn(),
+  deleteDoc: vi.fn(),
+  getDoc: vi.fn(),
+  getDocs: vi.fn(),
+  query: vi.fn(),
+  where: vi.fn(),
+  increment: vi.fn((n: number) => n), // Mock do increment
+}));
+
+// Mock do Dexie para visitMembers e visits
 vi.mock('@/services/db/dexie-db', () => ({
   db: {
     transaction: vi.fn(),
@@ -32,39 +59,31 @@ vi.mock('@/services/db/dexie-db', () => ({
       delete: vi.fn(),
       count: vi.fn().mockResolvedValue(0),
     },
-    // Removido: wardStats (tags-first)
     settings: {
       get: vi.fn(),
       put: vi.fn(),
       clear: vi.fn(),
     },
+    visits: {
+      put: vi.fn().mockResolvedValue(undefined),
+    },
+    visitMembers: {
+      where: vi.fn(() => ({
+        equals: vi.fn().mockReturnThis(),
+        and: vi.fn().mockReturnThis(),
+        toArray: vi.fn().mockResolvedValue([]),
+      })),
+      bulkPut: vi.fn().mockResolvedValue(undefined),
+    },
   },
-}));
-
-// Mock do auth-service
-vi.mock('@/services/auth/auth-service', () => ({
-  getAuthState: vi.fn(() => ({ user: null, loading: false, error: null })),
-}));
-
-// Mock do firebase
-vi.mock('@/services/auth/firebase', () => ({
-  getFirebaseFirestore: vi.fn(() => ({})),
-}));
-
-// Mock das funções do Firestore
-vi.mock('firebase/firestore', () => ({
-  collection: vi.fn(),
-  doc: vi.fn(),
-  setDoc: vi.fn(),
-  updateDoc: vi.fn(),
-  deleteDoc: vi.fn(),
-  getDoc: vi.fn(),
-  getDocs: vi.fn(),
-  increment: vi.fn((n: number) => n), // Mock do increment
 }));
 
 import * as syncService from './sync-service';
 import { type SyncQueueItem } from '@/models/sync-queue';
+import { getAuthState } from '@/services/auth/auth-service';
+import { getFirebaseFirestore } from '@/services/auth/firebase';
+import { db } from '@/services/db/dexie-db';
+import { collectionGroup, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 
 // Removido: FirestoreWardStatData (tags-first)
 
@@ -77,6 +96,7 @@ const mockWindow = {
   navigator: { onLine: true },
 };
 vi.stubGlobal('window', mockWindow);
+vi.stubGlobal('navigator', { onLine: true });
 
 describe('sync-service - getSyncStatus', () => {
   it('deve retornar status inicial com pendingCount 0', () => {
@@ -630,5 +650,164 @@ describe('sync-service - resolveSettingsConflict', () => {
     expect(result.inputPreferences).toEqual({
       uppercaseBed: false,
     });
+  });
+});
+
+describe('sync-service - pullRemoteVisitMembershipsAndVisits', () => {
+  const mockedGetAuthState = vi.mocked(getAuthState);
+  const mockedGetFirebaseFirestore = vi.mocked(getFirebaseFirestore);
+  const mockedCollectionGroup = vi.mocked(collectionGroup);
+  const mockedQuery = vi.mocked(query);
+  const mockedWhere = vi.mocked(where);
+  const mockedGetDocs = vi.mocked(getDocs);
+  const mockedDoc = vi.mocked(doc);
+  const mockedGetDoc = vi.mocked(getDoc);
+
+  const mockedDb = db as unknown as {
+    visitMembers: { bulkPut: ReturnType<typeof vi.fn> };
+    visits: { put: ReturnType<typeof vi.fn> };
+  };
+
+  const setupDefaults = () => {
+    vi.clearAllMocks();
+    mockedGetAuthState.mockReturnValue({
+      user: { uid: 'user-123' } as ReturnType<typeof getAuthState>['user'],
+      loading: false,
+      error: null,
+    });
+    mockedGetFirebaseFirestore.mockReturnValue({} as ReturnType<typeof getFirebaseFirestore>);
+    mockedCollectionGroup.mockReturnValue({} as ReturnType<typeof collectionGroup>);
+    mockedWhere.mockReturnValue({} as ReturnType<typeof where>);
+    mockedQuery.mockReturnValue({} as ReturnType<typeof query>);
+    mockedDoc.mockReturnValue({} as ReturnType<typeof doc>);
+  };
+
+  it('retorna sem erro quando usuário não está autenticado', async () => {
+    setupDefaults();
+    mockedGetAuthState.mockReturnValue({ user: null, loading: false, error: null });
+
+    await expect(syncService.pullRemoteVisitMembershipsAndVisits()).resolves.toBeUndefined();
+    expect(mockedGetDocs).not.toHaveBeenCalled();
+  });
+
+  it('hidrata membership ativo e visita correspondente', async () => {
+    setupDefaults();
+
+    mockedGetDocs.mockResolvedValue({
+      empty: false,
+      docs: [
+        {
+          id: 'user-123',
+          data: () => ({
+            id: 'visit-1:user-123',
+            visitId: 'visit-1',
+            userId: 'user-123',
+            role: 'owner',
+            status: 'active',
+            createdAt: '2026-04-01T10:00:00.000Z',
+            updatedAt: '2026-04-01T10:00:00.000Z',
+          }),
+        },
+      ],
+    } as Awaited<ReturnType<typeof getDocs>>);
+
+    mockedGetDoc.mockResolvedValue({
+      exists: () => true,
+      data: () => ({
+        id: 'visit-1',
+        userId: 'user-123',
+        name: 'Visita 01-04-2026 privada',
+        date: '2026-04-01',
+        mode: 'private',
+        createdAt: '2026-04-01T10:00:00.000Z',
+      }),
+    } as Awaited<ReturnType<typeof getDoc>>);
+
+    await syncService.pullRemoteVisitMembershipsAndVisits();
+
+    expect(mockedDb.visitMembers.bulkPut).toHaveBeenCalledTimes(1);
+    const members = mockedDb.visitMembers.bulkPut.mock.calls[0][0] as { id: string }[];
+    expect(members[0]?.id).toBe('visit-1:user-123');
+    expect(mockedDb.visits.put).toHaveBeenCalledWith(expect.objectContaining({ id: 'visit-1' }));
+  });
+
+  it('ignora memberships removidos', async () => {
+    setupDefaults();
+
+    mockedGetDocs.mockResolvedValue({
+      empty: false,
+      docs: [
+        {
+          id: 'user-123',
+          data: () => ({
+            id: 'visit-1:user-123',
+            visitId: 'visit-1',
+            userId: 'user-123',
+            role: 'viewer',
+            status: 'removed',
+            createdAt: '2026-04-01T10:00:00.000Z',
+            updatedAt: '2026-04-01T10:00:00.000Z',
+          }),
+        },
+      ],
+    } as Awaited<ReturnType<typeof getDocs>>);
+
+    await syncService.pullRemoteVisitMembershipsAndVisits();
+
+    expect(mockedDb.visitMembers.bulkPut).not.toHaveBeenCalled();
+    expect(mockedGetDoc).not.toHaveBeenCalled();
+    expect(mockedDb.visits.put).not.toHaveBeenCalled();
+  });
+
+  it('continua em modo best-effort quando uma visita falha', async () => {
+    setupDefaults();
+
+    mockedGetDocs.mockResolvedValue({
+      empty: false,
+      docs: [
+        {
+          id: 'user-123',
+          data: () => ({
+            id: 'visit-1:user-123',
+            visitId: 'visit-1',
+            userId: 'user-123',
+            role: 'owner',
+            status: 'active',
+            createdAt: '2026-04-01T10:00:00.000Z',
+          }),
+        },
+        {
+          id: 'user-123',
+          data: () => ({
+            id: 'visit-2:user-123',
+            visitId: 'visit-2',
+            userId: 'user-123',
+            role: 'owner',
+            status: 'active',
+            createdAt: '2026-04-01T10:00:00.000Z',
+          }),
+        },
+      ],
+    } as Awaited<ReturnType<typeof getDocs>>);
+
+    mockedGetDoc
+      .mockRejectedValueOnce(new Error('firestore unavailable for visit-1'))
+      .mockResolvedValueOnce({
+        exists: () => true,
+        data: () => ({
+          id: 'visit-2',
+          userId: 'user-123',
+          name: 'Visita 02-04-2026 privada',
+          date: '2026-04-02',
+          mode: 'private',
+          createdAt: '2026-04-02T10:00:00.000Z',
+        }),
+      } as Awaited<ReturnType<typeof getDoc>>);
+
+    await syncService.pullRemoteVisitMembershipsAndVisits();
+
+    expect(mockedDb.visitMembers.bulkPut).toHaveBeenCalledTimes(1);
+    expect(mockedDb.visits.put).toHaveBeenCalledTimes(1);
+    expect(mockedDb.visits.put).toHaveBeenCalledWith(expect.objectContaining({ id: 'visit-2' }));
   });
 });

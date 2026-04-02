@@ -13,10 +13,13 @@ import { getFirebaseFirestore } from '@/services/auth/firebase';
 import { getAuthState } from '@/services/auth/auth-service';
 import {
   collection,
+  collectionGroup,
   deleteDoc,
   doc,
   getDoc,
   getDocs,
+  query,
+  where,
   setDoc,
   updateDoc,
   onSnapshot,
@@ -24,6 +27,7 @@ import {
   type Firestore,
   type UpdateData,
 } from 'firebase/firestore';
+import type { Visit } from '@/models/visit';
 import { SYNC_QUEUE_CONSTANTS } from '@/models/sync-queue';
 
 export interface SyncStatus {
@@ -1045,5 +1049,172 @@ export async function pullRemoteSettings(): Promise<void> {
     await db.settings.put(resolved);
   } catch (error) {
     console.warn('[VisitaMed] Erro no pull de settings:', error);
+  }
+}
+
+// ============================================================================
+// S14A - Pull remoto de memberships + visitas no login (hidratação multi-dispositivo)
+// ============================================================================
+
+interface FirestoreMemberData {
+  id: string;
+  visitId: string;
+  userId: string;
+  role: 'owner' | 'editor' | 'viewer';
+  status: 'active' | 'removed';
+  createdAt: unknown;
+  updatedAt?: unknown;
+  removedAt?: unknown;
+}
+
+interface FirestoreVisitData {
+  id: string;
+  userId: string;
+  name: string;
+  date: string;
+  mode: 'private' | 'group';
+  createdAt: unknown;
+  updatedAt?: unknown;
+}
+
+/**
+ * Converte dados de membership remoto para formato local
+ */
+function convertFirestoreMemberToLocal(data: FirestoreMemberData): VisitMember {
+  const createdAt = convertTimestampToDate(data.createdAt) ?? new Date();
+  const updatedAt = convertTimestampToDate(data.updatedAt) ?? createdAt;
+  const removedAt = convertTimestampToDate(data.removedAt);
+
+  return {
+    // Em collectionGroup('members'), doc.id costuma ser apenas userId.
+    // Mantemos o formato canônico local "visitId:userId" para compatibilidade.
+    id: data.id || `${data.visitId}:${data.userId}`,
+    visitId: data.visitId,
+    userId: data.userId,
+    role: data.role,
+    status: data.status,
+    createdAt,
+    updatedAt,
+    ...(removedAt && { removedAt }),
+  };
+}
+
+/**
+ * Converte dados de visita remota para formato local
+ */
+function convertFirestoreVisitToLocal(
+  id: string,
+  data: FirestoreVisitData,
+  userId: string
+): Visit {
+  const createdAt = convertTimestampToDate(data.createdAt) ?? new Date();
+  const updatedAt = convertTimestampToDate(data.updatedAt);
+
+  return {
+    id,
+    userId,
+    name: data.name || '',
+    date: data.date || '',
+    mode: data.mode === 'group' ? 'group' : 'private',
+    createdAt,
+    updatedAt,
+  };
+}
+
+/**
+ * Pull remoto de memberships ativos e visitas correspondentes.
+ * Hidrata a base local no login para permitir sync multi-dispositivo.
+ * Best-effort: erro de uma visita não aborta o pull completo.
+ */
+export async function pullRemoteVisitMembershipsAndVisits(): Promise<void> {
+  const { user, loading } = getAuthState();
+
+  // Pré-condições
+  if (loading || !user) {
+    return;
+  }
+
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return;
+  }
+
+  const firestore = getFirebaseFirestore();
+
+  if (!firestore) {
+    console.warn('[VisitaMed] Firestore não configurado');
+    return;
+  }
+
+  try {
+    // Query collectionGroup('members') com filtro por userId
+    const membersQuery = query(
+      collectionGroup(firestore, 'members'),
+      where('userId', '==', user.uid)
+    );
+
+    const membersSnapshot = await getDocs(membersQuery);
+
+    if (membersSnapshot.empty) {
+      console.log('[VisitaMed] Nenhum membership remoto encontrado');
+      return;
+    }
+
+    // Filtrar apenas memberships ativos e upsert local
+    const activeMembers: VisitMember[] = [];
+
+    for (const docSnap of membersSnapshot.docs) {
+      const data = docSnap.data() as FirestoreMemberData;
+
+      // Filtrar apenas status === 'active'
+      if (data.status !== 'active') {
+        continue;
+      }
+
+      // Se não tem visitId, pular
+      if (!data.visitId) {
+        continue;
+      }
+
+      const member = convertFirestoreMemberToLocal(data);
+      activeMembers.push(member);
+    }
+
+    if (activeMembers.length === 0) {
+      console.log('[VisitaMed] Nenhum membership ativo encontrado');
+      return;
+    }
+
+    // Bulk upsert memberships locais
+    await db.visitMembers.bulkPut(activeMembers);
+    console.log(`[VisitaMed] ${String(activeMembers.length)} memberships hydratados localmente`);
+
+    // Para cada membership ativo, buscar visita correspondente
+    const visitIds = [...new Set(activeMembers.map((m) => m.visitId))];
+
+    for (const visitId of visitIds) {
+      try {
+        const visitRef = doc(firestore, 'visits', visitId);
+        const visitSnap = await getDoc(visitRef);
+
+        if (!visitSnap.exists()) {
+          console.warn(`[VisitaMed] Visita ${visitId} não encontrada no Firestore`);
+          continue;
+        }
+
+        const visitData = visitSnap.data() as FirestoreVisitData;
+        const visit = convertFirestoreVisitToLocal(visitId, visitData, user.uid);
+
+        // Upsert visita local
+        await db.visits.put(visit);
+        console.log(`[VisitaMed] Visita ${visitId} hidratada localmente`);
+      } catch (visitError) {
+        // Best-effort: erro de uma visita não aborta o restante
+        console.warn(`[VisitaMed] Erro ao hidratar visita ${visitId}:`, visitError);
+      }
+    }
+
+    console.log('[VisitaMed] Pull de memberships e visitas concluído');
+  } catch (error) {
+    console.warn('[VisitaMed] Erro no pull de memberships/visitas:', error);
   }
 }
