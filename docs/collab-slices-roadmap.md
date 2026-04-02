@@ -83,6 +83,7 @@
 | S14A | DONE | Pull remoto de memberships + visitas no login (hidratação multi-dispositivo) | `docs/collab-slice14a-pull-remote-memberships-visits-handoff-prompt.md` |
 | S14B | DONE | Push de visita + membership owner via fila de sync (criação/duplicação) | `docs/collab-slice14b-push-visit-owner-membership-sync-queue-handoff-prompt.md` |
 | S14C | DONE | Guard de logout com pendências de sync (evitar perda silenciosa) | `docs/collab-slice14c-logout-sync-pending-guard-handoff-prompt.md` |
+| S14D | DONE | Hotfix sync de notas: serializar timestamps corretamente para Firestore rules | `docs/collab-slice14d-note-sync-timestamp-serialization-hotfix-handoff-prompt.md` |
 
 ---
 
@@ -125,8 +126,9 @@
 - S14A: `14fbde9`
 - S14B: `567dd61`
 - S14C: `4befc15`
+- S14D: `d0fcf0c`
 
-Estado atual validado localmente: typecheck/lint/test verdes (217 testes).
+Estado atual validado localmente: typecheck/lint/test verdes (225 testes).
 
 ---
 
