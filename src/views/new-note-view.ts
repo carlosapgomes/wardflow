@@ -260,6 +260,14 @@ export class NewNoteView extends LitElement {
     }
   };
 
+  private handleBackClick = (): void => {
+    if (this.visitId) {
+      navigate(`/visita/${this.visitId}`);
+    } else {
+      navigate('/dashboard');
+    }
+  };
+
   override render() {
     // S12A: validação sem ward (tags-first)
     const isBusy = this.saving || this.deleting;
@@ -269,7 +277,7 @@ export class NewNoteView extends LitElement {
 
     if (!this.permissionChecked) {
       return html`
-        <app-header title=${title}></app-header>
+        <app-header title=${title} ?showBack=${true} @back-click=${this.handleBackClick}></app-header>
         <main class="container-fluid wf-page-container wf-with-header pb-4">
           <div class="d-flex align-items-center justify-content-center text-secondary" style="min-height: 50vh;">
             Verificando permissões...
@@ -280,7 +288,7 @@ export class NewNoteView extends LitElement {
 
     if (this.isUserRemoved()) {
       return html`
-        <app-header title="Acesso removido"></app-header>
+        <app-header title="Acesso removido" ?showBack=${true} @back-click=${this.handleBackClick}></app-header>
         <main class="container-fluid wf-page-container wf-with-header pb-4">
           <div class="d-flex flex-column align-items-center justify-content-center text-center" style="min-height: 50vh;">
             <div class="mb-4">
@@ -300,7 +308,7 @@ export class NewNoteView extends LitElement {
 
     if (!this.canEdit) {
       return html`
-        <app-header title=${title}></app-header>
+        <app-header title=${title} ?showBack=${true} @back-click=${this.handleBackClick}></app-header>
         <main class="container-fluid wf-page-container wf-with-header pb-4">
           <div class="d-flex flex-column align-items-center justify-content-center text-center" style="min-height: 50vh;">
             <div class="mb-4">
@@ -321,7 +329,7 @@ export class NewNoteView extends LitElement {
 
     if (this.loading) {
       return html`
-        <app-header title=${title}></app-header>
+        <app-header title=${title} ?showBack=${true} @back-click=${this.handleBackClick}></app-header>
         <main class="container-fluid wf-page-container wf-with-header pb-4">
           <div class="d-flex align-items-center justify-content-center text-secondary" style="min-height: 50vh;">
             Carregando...
@@ -332,7 +340,7 @@ export class NewNoteView extends LitElement {
 
     // S12A: tags no topo do formulário (antes dos demais campos)
     return html`
-      <app-header title=${title}></app-header>
+      <app-header title=${title} ?showBack=${true} @back-click=${this.handleBackClick}></app-header>
 
       <main class="container-fluid wf-page-container wf-with-header pb-4">
         <div class="card border-0 shadow-sm mb-3">

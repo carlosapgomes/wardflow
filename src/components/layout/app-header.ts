@@ -114,6 +114,12 @@ export class AppHeader extends LitElement {
     navigate('/configuracoes');
   };
 
+  private handleMyVisitsClick = (e?: Event): void => {
+    e?.stopPropagation();
+    this.showMenu = false;
+    navigate('/dashboard');
+  };
+
   private handleAboutClose = (): void => {
     this.showAboutModal = false;
   };
@@ -356,6 +362,9 @@ export class AppHeader extends LitElement {
                             <div class="dropdown-menu show dropdown-menu-end position-absolute top-100 end-0 mt-2">
                               <button class="dropdown-item" @click=${this.handleThemeToggle}>
                                 ${this.currentTheme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'}
+                              </button>
+                              <button class="dropdown-item" @click=${this.handleMyVisitsClick}>
+                                Minhas visitas
                               </button>
                               <button class="dropdown-item" @click=${this.handleSettingsOpen}>
                                 Configurações
