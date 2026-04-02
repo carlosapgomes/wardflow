@@ -79,6 +79,7 @@
 | S13A | DONE | Criar visita com nome opcional + dedupe de nomes no mesmo dia | `docs/collab-slice13a-visit-name-input-and-dedupe-handoff-prompt.md` |
 | S13B | DONE | Navegação rápida da tela de nota: atalho para Minhas visitas + botão voltar para visita | `docs/collab-slice13b-note-navigation-quick-exit-handoff-prompt.md` |
 | S13C | DONE | Confirmar descarte ao sair da nota com alterações não salvas (back/cancel) | `docs/collab-slice13c-note-unsaved-changes-guard-handoff-prompt.md` |
+| S13D | DONE | Aviso ao recarregar/fechar aba com rascunho não salvo na nota (`beforeunload`) | `docs/collab-slice13d-note-beforeunload-unsaved-guard-handoff-prompt.md` |
 
 ---
 
@@ -117,6 +118,7 @@
 - S13A: `429d546`
 - S13B: `010baa6`
 - S13C: `7a84ba4`
+- S13D: `c781b66`
 
 Estado atual validado localmente: typecheck/lint/test verdes (213 testes).
 
