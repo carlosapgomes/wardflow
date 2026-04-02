@@ -8,7 +8,6 @@ import { customElement, state } from 'lit/decorators.js';
 import { liveQuery, type Subscription } from 'dexie';
 import { navigate, getCurrentRoute } from '@/router/router';
 import { getAllNotes, deleteNotes } from '@/services/db/notes-service';
-import { getVisitById } from '@/services/db/visits-service';
 import { getCurrentUserVisitMember } from '@/services/db/visit-members-service';
 import { canEditNote, canDeleteNote, getVisitAccessState, type VisitAccessState } from '@/services/auth/visit-permissions';
 import { getDashboardGroupActions } from '@/services/auth/dashboard-actions-policy';
@@ -34,7 +33,7 @@ type SelectedScope =
 @customElement('dashboard-view')
 export class DashboardView extends LitElement {
   @state() private visitId: string | null = null;
-  @state() private visitName = '';
+  // S12A: visitName não usado - título fixo do app
   @state() private notes: Note[] = [];
   @state() private isLoading = true;
   @state() private isActionSheetOpen = false;
@@ -62,13 +61,13 @@ export class DashboardView extends LitElement {
     const route = getCurrentRoute();
     if (route?.params['visitId']) {
       this.visitId = route.params['visitId'];
-      await this.loadVisitName();
       await this.loadMember();
     }
 
     this.startNotesSubscription();
   }
 
+  // S12A: loadVisitName removido - título fixo do app
   private async loadMember(): Promise<void> {
     if (!this.visitId) return;
 
@@ -83,17 +82,6 @@ export class DashboardView extends LitElement {
       this.member = null;
       this.accessState = 'no-membership';
       this.actions = getDashboardGroupActions(false);
-    }
-  }
-
-  private async loadVisitName(): Promise<void> {
-    if (!this.visitId) return;
-
-    try {
-      const visit = await getVisitById(this.visitId);
-      this.visitName = visit?.name ?? '';
-    } catch {
-      this.visitName = '';
     }
   }
 
@@ -405,7 +393,8 @@ export class DashboardView extends LitElement {
   }
 
   private renderDashboardContent() {
-    const title = this.visitName || 'Notas';
+    // S12A: título fixo do app na navbar
+    const title = 'VisitaMed';
 
     return html`
       <app-header title=${title} ?showBack=${true} @back-click=${this.handleBackClick}></app-header>

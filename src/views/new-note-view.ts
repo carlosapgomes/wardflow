@@ -12,7 +12,6 @@ import {
   deleteNote,
   getNoteById,
   validateNoteInput,
-  getWardSuggestionsWithFallback,
   removeTagFromNote,
   type CreateNoteInput,
 } from '@/services/db/notes-service';
@@ -26,15 +25,13 @@ import { applyInputCase, getInputPreferences } from '@/services/settings/setting
 export class NewNoteView extends LitElement {
   @state() private visitId: string | null = null;
   @state() private noteId: string | null = null;
-  @state() private ward = '';
+  // S12A: ward removido da UI - pré-preenchido com primeira tag no save
   @state() private bed = '';
   @state() private reference = '';
   @state() private note = '';
   @state() private saving = false;
   @state() private deleting = false;
   @state() private isDeleteConfirmOpen = false;
-  @state() private wardSuggestions: string[] = [];
-  @state() private uppercaseWard = false;
   @state() private uppercaseBed = true;
   @state() private loading = false;
   @state() private error = '';
@@ -55,12 +52,9 @@ export class NewNoteView extends LitElement {
   override async connectedCallback(): Promise<void> {
     super.connectedCallback();
 
-    // Carrega sugestões de alas e preferências de input
-    this.wardSuggestions = await getWardSuggestionsWithFallback();
-
+    // S12A: não carrega mais sugestões de alas (UI sem campo de ala)
     try {
       const inputPreferences = await getInputPreferences();
-      this.uppercaseWard = inputPreferences.uppercaseWard;
       this.uppercaseBed = inputPreferences.uppercaseBed;
     } catch {
       // mantém defaults seguros
@@ -105,7 +99,7 @@ export class NewNoteView extends LitElement {
       const existingNote = await getNoteById(this.noteId);
 
       if (existingNote) {
-        this.ward = existingNote.ward;
+        // S12A: ward não exposto na UI
         this.bed = existingNote.bed;
         this.reference = existingNote.reference ?? '';
         this.note = existingNote.note;
@@ -120,11 +114,7 @@ export class NewNoteView extends LitElement {
     }
   }
 
-  private handleWardInput = (e: Event) => {
-    const value = (e.target as HTMLInputElement).value;
-    this.ward = applyInputCase(value, this.uppercaseWard);
-  };
-
+  // S12A: handleWardInput removido (campo de ala removido da UI)
   private handleBedInput = (e: Event) => {
     const value = (e.target as HTMLInputElement).value;
     this.bed = applyInputCase(value, this.uppercaseBed);
@@ -193,17 +183,21 @@ export class NewNoteView extends LitElement {
       return;
     }
 
+    // S12A: ponte técnica - preenche ward com primeira tag para manter contrato atual
+    const wardValue = this.tags.length > 0 ? this.tags[0] : '';
+
     const input: CreateNoteInput = {
       visitId: this.visitId,
-      ward: this.ward,
+      ward: wardValue,
       bed: this.bed,
       reference: this.reference || undefined,
       note: this.note,
       tags: this.tags,
     };
 
+    // S12A: validação sem mention de ala
     if (!validateNoteInput(input)) {
-      this.error = 'Preencha os campos obrigatórios: Ala, Leito, Nota e ao menos 1 Tag';
+      this.error = 'Preencha os campos obrigatórios: Leito, Nota e ao menos 1 Tag';
       return;
     }
 
@@ -271,8 +265,9 @@ export class NewNoteView extends LitElement {
   };
 
   override render() {
+    // S12A: validação sem ward (tags-first)
     const isBusy = this.saving || this.deleting;
-    const canSave = !isBusy && this.ward && this.bed && this.note && this.tags.length > 0;
+    const canSave = !isBusy && this.bed && this.note && this.tags.length > 0;
     const title = this.isEditMode ? 'Editar Nota' : 'Nova Nota';
     const saveLabel = this.saving ? 'Salvando...' : 'Salvar';
 
@@ -339,62 +334,14 @@ export class NewNoteView extends LitElement {
       `;
     }
 
+    // S12A: tags no topo do formulário (antes dos demais campos)
     return html`
       <app-header title=${title}></app-header>
 
       <main class="container-fluid wf-page-container wf-with-header pb-4">
         <div class="card border-0 shadow-sm mb-3">
           <div class="card-body">
-            <div class="mb-3">
-              <label for="ward" class="form-label">Ala / Setor *</label>
-              <input
-                id="ward"
-                class="form-control"
-                type="text"
-                list="ward-suggestions"
-                .value=${this.ward}
-                @input=${this.handleWardInput}
-                placeholder="Ex: UTI, Enfermaria A"
-                autocomplete="off"
-                autocapitalize=${this.uppercaseWard ? 'characters' : 'words'}
-                style=${this.uppercaseWard ? 'text-transform: uppercase' : ''}
-              />
-
-              <datalist id="ward-suggestions">
-                ${this.wardSuggestions.map((ward) => html`<option value=${ward}>`)}
-              </datalist>
-            </div>
-
-            <div class="mb-3">
-              <label for="bed" class="form-label">Leito *</label>
-              <input
-                id="bed"
-                class="form-control"
-                type="text"
-                .value=${this.bed}
-                @input=${this.handleBedInput}
-                placeholder="Ex: 01, 02A"
-                autocomplete="off"
-                autocapitalize=${this.uppercaseBed ? 'characters' : 'words'}
-                style=${this.uppercaseBed ? 'text-transform: uppercase' : ''}
-              />
-            </div>
-
-            <div class="mb-3">
-              <label for="reference" class="form-label">Referência (opcional)</label>
-              <input
-                id="reference"
-                class="form-control"
-                type="text"
-                .value=${this.reference}
-                @input=${this.handleReferenceInput}
-                placeholder="Ex: AB"
-                maxlength=${NOTE_CONSTANTS.MAX_REFERENCE_LENGTH}
-                autocapitalize="characters"
-                style="text-transform: uppercase"
-              />
-            </div>
-
+            <!-- Tags primeiro (tags-first) -->
             <div class="mb-3">
               <label for="tags" class="form-label">Tags *</label>
               <div class="input-group">
@@ -433,6 +380,37 @@ export class NewNoteView extends LitElement {
                 </div>
               </div>
             ` : null}
+
+            <!-- Leito após tags -->
+            <div class="mb-3">
+              <label for="bed" class="form-label">Leito *</label>
+              <input
+                id="bed"
+                class="form-control"
+                type="text"
+                .value=${this.bed}
+                @input=${this.handleBedInput}
+                placeholder="Ex: 01, 02A"
+                autocomplete="off"
+                autocapitalize=${this.uppercaseBed ? 'characters' : 'words'}
+                style=${this.uppercaseBed ? 'text-transform: uppercase' : ''}
+              />
+            </div>
+
+            <div class="mb-3">
+              <label for="reference" class="form-label">Referência (opcional)</label>
+              <input
+                id="reference"
+                class="form-control"
+                type="text"
+                .value=${this.reference}
+                @input=${this.handleReferenceInput}
+                placeholder="Ex: AB"
+                maxlength=${NOTE_CONSTANTS.MAX_REFERENCE_LENGTH}
+                autocapitalize="characters"
+                style="text-transform: uppercase"
+              />
+            </div>
 
             <div class="mb-2">
               <label for="note" class="form-label">Nota *</label>
