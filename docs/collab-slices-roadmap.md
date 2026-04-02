@@ -72,7 +72,7 @@
 | S11B | DONE | Fonte remota de convites (create/revoke/list em Firestore) | `docs/collab-slice11b-remote-invites-firestore-handoff-prompt.md` |
 | S11C | DONE | Aceite real por token no backend (transação + statuses) | `docs/collab-slice11c-invite-accept-backend-transaction-handoff-prompt.md` |
 | S11D | DONE | Frontend troca aceite local por endpoint remoto | `docs/collab-slice11d-frontend-accept-via-endpoint-handoff-prompt.md` |
-| S11E | TODO | Hardening do fluxo de convite remoto (hash/rate-limit/auditoria) | (gerar) |
+| S11E | DONE | Hardening do fluxo de convite remoto (hash/rate-limit/auditoria) | `docs/collab-slice11e-invite-flow-hardening-handoff-prompt.md` |
 
 ---
 
@@ -104,15 +104,16 @@
 - S11B: `218af6d`
 - S11C: `227a0ed`
 - S11D: `76cdbaf`
+- S11E: `ca53be3`
 
-Estado atual validado localmente: typecheck/lint/test verdes (233 testes).
+Estado atual validado localmente: typecheck/lint/test verdes (234 testes).
 
 ---
 
 ## Débitos conhecidos
 
-- Fluxo de aceite agora usa endpoint remoto ponta a ponta (S11C + S11D). Próximo passo é hardening de segurança.
-- Hardening de segurança do fluxo remoto (hash/rate-limit/auditoria) pendente para S11E.
+- Fluxo remoto de convite endurecido com tokenHash, rate-limit básico e auditoria de aceite (S11E).
+- Possíveis refinamentos futuros: regras remotas específicas para campos técnicos de auditoria e estratégia de retenção/limpeza de rate-limit metadata.
 - Preservação robusta de deep link em cenários de auth edge-case pode ser refinada em hardening.
 
 ---
