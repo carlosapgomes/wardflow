@@ -77,6 +77,7 @@
 | S12B | DONE | Core tags-first: remover obrigatoriedade de `ward` em contracts/serviços/rules | `docs/collab-slice12b-core-tags-first-no-ward-required-handoff-prompt.md` |
 | S12C | DONE | Limpeza de legados `ward-*` (stats/settings/sync/tests) | `docs/collab-slice12c-remove-ward-legacy-stack-handoff-prompt.md` |
 | S13A | DONE | Criar visita com nome opcional + dedupe de nomes no mesmo dia | `docs/collab-slice13a-visit-name-input-and-dedupe-handoff-prompt.md` |
+| S13B | DONE | Navegação rápida da tela de nota: atalho para Minhas visitas + botão voltar para visita | `docs/collab-slice13b-note-navigation-quick-exit-handoff-prompt.md` |
 
 ---
 
@@ -113,6 +114,7 @@
 - S12B: `64b14e4`
 - S12C: `95519a5`
 - S13A: `429d546`
+- S13B: `010baa6`
 
 Estado atual validado localmente: typecheck/lint/test verdes (213 testes).
 
