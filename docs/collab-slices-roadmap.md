@@ -80,6 +80,7 @@
 | S13B | DONE | Navegação rápida da tela de nota: atalho para Minhas visitas + botão voltar para visita | `docs/collab-slice13b-note-navigation-quick-exit-handoff-prompt.md` |
 | S13C | DONE | Confirmar descarte ao sair da nota com alterações não salvas (back/cancel) | `docs/collab-slice13c-note-unsaved-changes-guard-handoff-prompt.md` |
 | S13D | DONE | Aviso ao recarregar/fechar aba com rascunho não salvo na nota (`beforeunload`) | `docs/collab-slice13d-note-beforeunload-unsaved-guard-handoff-prompt.md` |
+| S14A | DONE | Pull remoto de memberships + visitas no login (hidratação multi-dispositivo) | `docs/collab-slice14a-pull-remote-memberships-visits-handoff-prompt.md` |
 
 ---
 
@@ -119,8 +120,9 @@
 - S13B: `010baa6`
 - S13C: `7a84ba4`
 - S13D: `c781b66`
+- S14A: `14fbde9`
 
-Estado atual validado localmente: typecheck/lint/test verdes (213 testes).
+Estado atual validado localmente: typecheck/lint/test verdes (217 testes).
 
 ---
 
