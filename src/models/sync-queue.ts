@@ -14,7 +14,7 @@ export interface SyncQueueItem {
   operation: SyncOperation;
 
   /** Tipo de entidade */
-  entityType: 'note' | 'settings';
+  entityType: 'note' | 'settings' | 'visit' | 'visit-member';
 
   /** ID da entidade */
   entityId: string;

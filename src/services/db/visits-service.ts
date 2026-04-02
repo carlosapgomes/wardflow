@@ -10,6 +10,7 @@ import { createSyncQueueItem } from '@/models/sync-queue';
 import { normalizeTagList } from '@/models/tag';
 import { getAuthState } from '@/services/auth/auth-service';
 import { createOwnerVisitMember, getVisitMember } from './visit-members-service';
+import type { VisitMember } from '@/models/visit-member';
 import { canDuplicateVisit } from '@/services/auth/visit-permissions';
 
 /**
@@ -64,6 +65,28 @@ async function getUniqueVisitName(baseName: string, userId: string, date: string
 }
 
 /**
+ * Enfileira operação de sync para visita dentro de transação local
+ */
+async function queueVisitForSyncInTransaction(
+  operation: 'create' | 'update' | 'delete',
+  visit: Visit
+): Promise<void> {
+  const item = createSyncQueueItem(visit.userId, operation, 'visit', visit.id, visit);
+  await db.syncQueue.add(item);
+}
+
+/**
+ * Enfileira operação de sync para membership de visita dentro de transação local
+ */
+async function queueVisitMemberForSyncInTransaction(
+  operation: 'create' | 'update' | 'delete',
+  member: VisitMember
+): Promise<void> {
+  const item = createSyncQueueItem(member.userId, operation, 'visit-member', member.id, member);
+  await db.syncQueue.add(item);
+}
+
+/**
  * Cria uma nova visita privada
  * O nome é gerado automaticamente se não fornecido
  * Garante nome único por usuário + data (dedupe automático)
@@ -86,9 +109,13 @@ export async function createPrivateVisit(namePrefix?: string): Promise<Visit> {
   // Cria membership do owner em transação atômica
   const ownerMember = createOwnerVisitMember(visit.id, userId);
 
-  await db.transaction('rw', [db.visits, db.visitMembers], async () => {
+  await db.transaction('rw', [db.visits, db.visitMembers, db.syncQueue], async () => {
     await db.visits.add(visit);
     await db.visitMembers.add(ownerMember);
+
+    // Enfileirar sync de visit e owner membership
+    await queueVisitForSyncInTransaction('create', visit);
+    await queueVisitMemberForSyncInTransaction('create', ownerMember);
   });
 
   return visit;
@@ -206,6 +233,10 @@ export async function duplicateVisitAsPrivate(sourceVisitId: string): Promise<Vi
 
       // Criar membership owner
       await db.visitMembers.add(newOwnerMember);
+
+      // Enfileirar sync de visita e membership owner
+      await queueVisitForSyncInTransaction('create', newVisit);
+      await queueVisitMemberForSyncInTransaction('create', newOwnerMember);
 
       // Criar notas duplicadas e enfileirar sync
       for (const note of duplicatedNotes) {

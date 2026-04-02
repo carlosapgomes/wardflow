@@ -361,6 +361,90 @@ export async function syncNow(): Promise<void> {
 }
 
 /**
+ * Processa sync de visita (push para /visits/{visitId})
+ */
+function serializeDateLikeToIso(value: unknown): string {
+  const parsed = convertTimestampToDate(value);
+  return parsed ? parsed.toISOString() : new Date().toISOString();
+}
+
+async function processVisitSyncItem(item: SyncQueueItem, firestore: Firestore): Promise<void> {
+  let visitPayload: Visit;
+
+  try {
+    visitPayload = JSON.parse(item.payload) as Visit;
+  } catch {
+    throw new Error('Payload inválido na fila de sincronização de visita');
+  }
+
+  const visitRef = doc(firestore, 'visits', item.entityId);
+
+  if (item.operation === 'delete') {
+    await deleteDoc(visitRef);
+    return;
+  }
+
+  // create ou update: usar setDoc com merge
+  await setDoc(
+    visitRef,
+    {
+      id: visitPayload.id,
+      userId: visitPayload.userId,
+      name: visitPayload.name,
+      date: visitPayload.date,
+      mode: visitPayload.mode,
+      createdAt: serializeDateLikeToIso(visitPayload.createdAt),
+      updatedAt: serializeDateLikeToIso(visitPayload.updatedAt),
+    },
+    { merge: true }
+  );
+}
+
+/**
+ * Processa sync de membership de visita (push para /visits/{visitId}/members/{userId})
+ */
+async function processVisitMemberSyncItem(item: SyncQueueItem, firestore: Firestore): Promise<void> {
+  let memberPayload: VisitMember;
+
+  try {
+    memberPayload = JSON.parse(item.payload) as VisitMember;
+  } catch {
+    throw new Error('Payload inválido na fila de sincronização de membership');
+  }
+
+  // Extrair userId do payload ou do entityId (formato visitId:userId)
+  const [entityVisitId, entityUserId] = item.entityId.split(':');
+  const userId = memberPayload.userId || entityUserId;
+  const visitId = memberPayload.visitId || entityVisitId;
+
+  if (!userId || !visitId) {
+    throw new Error('Dados inválidos para sync de membership');
+  }
+
+  const memberRef = doc(firestore, 'visits', visitId, 'members', userId);
+
+  if (item.operation === 'delete') {
+    await deleteDoc(memberRef);
+    return;
+  }
+
+  // create ou update: usar setDoc com merge
+  await setDoc(
+    memberRef,
+    {
+      id: memberPayload.id || `${visitId}:${userId}`,
+      visitId,
+      userId,
+      role: memberPayload.role,
+      status: memberPayload.status,
+      createdAt: serializeDateLikeToIso(memberPayload.createdAt),
+      updatedAt: serializeDateLikeToIso(memberPayload.updatedAt),
+    },
+    { merge: true }
+  );
+}
+
+/**
  * Processa um item da fila de sincronização
  */
 async function processSyncItem(item: SyncQueueItem, firestore: Firestore): Promise<void> {
@@ -370,6 +454,12 @@ async function processSyncItem(item: SyncQueueItem, firestore: Firestore): Promi
       return;
     case 'settings':
       await processSettingsSyncItem(item, firestore);
+      return;
+    case 'visit':
+      await processVisitSyncItem(item, firestore);
+      return;
+    case 'visit-member':
+      await processVisitMemberSyncItem(item, firestore);
       return;
   }
 }

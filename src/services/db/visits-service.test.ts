@@ -228,11 +228,26 @@ describe('duplicateVisitAsPrivate', () => {
     expect(addedNotes[0].note).toBe(mockSourceNote.note);
     expect(addedNotes[0].syncStatus).toBe('pending');
 
-    // Verificar sync queue
-    expect(addedSyncItems.length).toBe(1);
-    const syncItem = addedSyncItems[0] as { operation: string; entityType: string };
-    expect(syncItem.operation).toBe('create');
-    expect(syncItem.entityType).toBe('note');
+    // Verificar sync queue: 1 note + 1 visit + 1 visit-member
+    expect(addedSyncItems.length).toBe(3);
+
+    // Verificar item de nota
+    const hasNoteItem = addedSyncItems.some(
+      (item) => (item as { entityType: string }).entityType === 'note'
+    );
+    expect(hasNoteItem).toBe(true);
+
+    // Verificar item de visita
+    const hasVisitItem = addedSyncItems.some(
+      (item) => (item as { entityType: string }).entityType === 'visit'
+    );
+    expect(hasVisitItem).toBe(true);
+
+    // Verificar item de membership
+    const hasMemberItem = addedSyncItems.some(
+      (item) => (item as { entityType: string }).entityType === 'visit-member'
+    );
+    expect(hasMemberItem).toBe(true);
   });
 
   it('deve duplicar múltiplas notas com sucesso', async () => {
@@ -267,8 +282,9 @@ describe('duplicateVisitAsPrivate', () => {
 
     await duplicateVisitAsPrivate(mockSourceVisitId);
 
+    // 3 notas + 1 visit + 1 visit-member = 5 sync items
     expect(addedNotes.length).toBe(3);
-    expect(addedSyncItems.length).toBe(3);
+    expect(addedSyncItems.length).toBe(5);
     expect(addedSyncItems.every((item) => (item as { operation: string }).operation === 'create')).toBe(true);
   });
 });
@@ -315,6 +331,11 @@ describe('createPrivateVisit - nome opcional e dedupe', () => {
     mockDb.visits.add.mockResolvedValue(undefined);
     mockDb.visitMembers.add.mockResolvedValue(undefined);
 
+    const addedSyncItems: unknown[] = [];
+    mockDb.syncQueue.add.mockImplementation((item: unknown) => {
+      addedSyncItems.push(item);
+    });
+
     const result = await createPrivateVisit();
 
     expect(result).toBeDefined();
@@ -322,6 +343,19 @@ describe('createPrivateVisit - nome opcional e dedupe', () => {
     expect(result.date).toBe(currentDate);
     expect(result.mode).toBe('private');
     expect(result.name).toContain('privada');
+
+    // Verificar sync queue: visit + visit-member
+    expect(addedSyncItems.length).toBe(2);
+
+    const hasVisitItem = addedSyncItems.some(
+      (item) => (item as { entityType: string }).entityType === 'visit'
+    );
+    expect(hasVisitItem).toBe(true);
+
+    const hasMemberItem = addedSyncItems.some(
+      (item) => (item as { entityType: string }).entityType === 'visit-member'
+    );
+    expect(hasMemberItem).toBe(true);
   });
 
   it('deve criar visita com prefixo personalizado', async () => {
