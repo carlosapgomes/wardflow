@@ -79,6 +79,7 @@ vi.mock('@/services/db/dexie-db', () => ({
 }));
 
 import * as syncService from './sync-service';
+import { type Note } from '@/models/note';
 import { type SyncQueueItem } from '@/models/sync-queue';
 import { getAuthState } from '@/services/auth/auth-service';
 import { getFirebaseFirestore } from '@/services/auth/firebase';
@@ -809,5 +810,155 @@ describe('sync-service - pullRemoteVisitMembershipsAndVisits', () => {
     expect(mockedDb.visitMembers.bulkPut).toHaveBeenCalledTimes(1);
     expect(mockedDb.visits.put).toHaveBeenCalledTimes(1);
     expect(mockedDb.visits.put).toHaveBeenCalledWith(expect.objectContaining({ id: 'visit-2' }));
+  });
+});
+
+describe('sync-service - serializeNoteForFirestore', () => {
+  // Nota válida com campos Date
+  const makeNote = (): import('@/models/note').Note => ({
+    id: 'note-1',
+    userId: 'user-123',
+    visitId: 'visit-1',
+    date: '2026-04-02',
+    bed: '01',
+    reference: 'Paciente Teste',
+    note: 'Nota de teste',
+    tags: ['tag1', 'tag2'],
+    syncStatus: 'pending',
+    createdAt: new Date('2026-04-02T10:00:00.000Z'),
+    updatedAt: new Date('2026-04-02T11:00:00.000Z'),
+    expiresAt: new Date('2026-04-16T10:00:00.000Z'),
+  });
+
+  it('deve preservar Date válido quando já vem como Date', () => {
+    const note = makeNote();
+    const result = syncService.serializeNoteForFirestore(note);
+
+    expect(result.createdAt).toBeInstanceOf(Date);
+    expect(result.createdAt.toISOString()).toBe('2026-04-02T10:00:00.000Z');
+    expect(result.updatedAt).toBeInstanceOf(Date);
+    expect(result.expiresAt).toBeInstanceOf(Date);
+  });
+
+  it('deve converter strings ISO para Date corretamente', () => {
+    // Nota com strings ISO (como viria do JSON.parse pós-falha)
+    const note = {
+      id: 'note-1',
+      userId: 'user-123',
+      visitId: 'visit-1',
+      date: '2026-04-02',
+      bed: '01',
+      reference: 'Paciente Teste',
+      note: 'Nota de teste',
+      tags: ['tag1', 'tag2'],
+      syncStatus: 'pending',
+      createdAt: '2026-04-02T10:00:00.000Z',
+      updatedAt: '2026-04-02T11:00:00.000Z',
+      expiresAt: '2026-04-16T10:00:00.000Z',
+    };
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+    const result = syncService.serializeNoteForFirestore(note as unknown as Note);
+
+    expect(result.createdAt).toBeInstanceOf(Date);
+    expect(result.createdAt.toISOString()).toBe('2026-04-02T10:00:00.000Z');
+    expect(result.updatedAt).toBeDefined();
+    expect(result.updatedAt?.toISOString()).toBe('2026-04-02T11:00:00.000Z');
+    expect(result.expiresAt).toBeInstanceOf(Date);
+    expect(result.expiresAt.toISOString()).toBe('2026-04-16T10:00:00.000Z');
+  });
+
+  it('deve aplicar fallback seguro para campos ausentes', () => {
+    const note = {
+      id: 'note-1',
+      userId: 'user-123',
+      visitId: 'visit-1',
+      date: '2026-04-02',
+      bed: '01',
+      reference: undefined,
+      note: 'Nota de teste',
+      tags: undefined,
+      syncStatus: 'pending',
+      createdAt: undefined as unknown as Date,
+      updatedAt: undefined,
+      expiresAt: undefined as unknown as Date,
+      syncedAt: undefined,
+    };
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+    const result = syncService.serializeNoteForFirestore(note as unknown as Note);
+
+    // Deve usar fallback (data atual) para campos ausentes
+    expect(result.createdAt).toBeInstanceOf(Date);
+    expect(result.expiresAt).toBeInstanceOf(Date);
+  });
+
+  it('deve aplicar fallback seguro para campos inválidos', () => {
+    const note = {
+      id: 'note-1',
+      userId: 'user-123',
+      visitId: 'visit-1',
+      date: '2026-04-02',
+      bed: '01',
+      reference: 'Paciente Teste',
+      note: 'Nota de teste',
+      tags: ['tag1', 'tag2'],
+      syncStatus: 'pending',
+      createdAt: 'invalid-date',
+      updatedAt: 'invalid-date',
+      expiresAt: 'invalid-date',
+    };
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+    const result = syncService.serializeNoteForFirestore(note as unknown as Note);
+
+    // Deve usar fallback para datas inválidas
+    expect(result.createdAt).toBeInstanceOf(Date);
+    expect(result.expiresAt).toBeInstanceOf(Date);
+  });
+
+  it('deve manter campos não-data intactos', () => {
+    const note = makeNote();
+    const result = syncService.serializeNoteForFirestore(note);
+
+    expect(result.id).toBe('note-1');
+    expect(result.userId).toBe('user-123');
+    expect(result.visitId).toBe('visit-1');
+    expect(result.date).toBe('2026-04-02');
+    expect(result.bed).toBe('01');
+    expect(result.reference).toBe('Paciente Teste');
+    expect(result.note).toBe('Nota de teste');
+    expect(result.tags).toEqual(['tag1', 'tag2']);
+    expect(result.syncStatus).toBe('pending');
+  });
+
+  it('deve serializar syncedAt quando presente', () => {
+    const note = {
+      ...makeNote(),
+      syncedAt: new Date('2026-04-02T12:00:00.000Z'),
+    };
+    const result = syncService.serializeNoteForFirestore(note);
+
+    expect(result.syncedAt).toBeInstanceOf(Date);
+    expect(result.syncedAt?.toISOString()).toBe('2026-04-02T12:00:00.000Z');
+  });
+
+  it('deve converter syncedAt de string ISO para Date', () => {
+    const note = {
+      ...makeNote(),
+      syncedAt: '2026-04-02T12:00:00.000Z',
+    };
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+    const result = syncService.serializeNoteForFirestore(note as unknown as Note);
+
+    expect(result.syncedAt).toBeInstanceOf(Date);
+    expect(result.syncedAt?.toISOString()).toBe('2026-04-02T12:00:00.000Z');
+  });
+
+  it('deve preservar undefined para updatedAt quando não existir', () => {
+    const note = {
+      ...makeNote(),
+      updatedAt: undefined,
+    };
+    const result = syncService.serializeNoteForFirestore(note);
+
+    expect(result.updatedAt).toBeUndefined();
   });
 });

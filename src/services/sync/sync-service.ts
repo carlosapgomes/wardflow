@@ -4,7 +4,7 @@
  */
 
 import { db } from '@/services/db/dexie-db';
-import type { Note } from '@/models/note';
+import type { Note, SyncStatus as NoteSyncStatus } from '@/models/note';
 import type { VisitMember } from '@/models/visit-member';
 import type { SyncQueueItem } from '@/models/sync-queue';
 import { normalizeSettings, SETTINGS_ID, type Settings } from '@/models/settings';
@@ -29,6 +29,80 @@ import {
 } from 'firebase/firestore';
 import type { Visit } from '@/models/visit';
 import { SYNC_QUEUE_CONSTANTS } from '@/models/sync-queue';
+
+/**
+ * Tipo para dados de nota serializados para Firestore
+ * Garante timestamps como Date válidos
+ */
+export interface SerializedNoteData {
+  id: string;
+  userId: string;
+  visitId: string;
+  date: string;
+  bed: string;
+  reference?: string;
+  note: string;
+  tags?: string[];
+  syncStatus: NoteSyncStatus;
+  createdAt: Date;
+  updatedAt?: Date;
+  expiresAt: Date;
+  syncedAt?: Date;
+}
+
+/**
+ * Helper para serializar nota para Firestore.
+ * Garante que timestamps sejam Date válidos para evitar erros de tipo no Firestore.
+ * Aceita Note (com Date) ou objeto com strings ISO (pós JSON.parse).
+ */
+export function serializeNoteForFirestore(note: Note): SerializedNoteData {
+  // Helper interno para normalizar data com fallback seguro
+  const normalizeDate = (value: unknown, fallback: Date): Date => {
+    if (!value) return fallback;
+
+    // Já é Date
+    if (value instanceof Date) {
+      return isNaN(value.getTime()) ? fallback : value;
+    }
+
+    // String ISO
+    if (typeof value === 'string') {
+      const date = new Date(value);
+      return isNaN(date.getTime()) ? fallback : date;
+    }
+
+    // Firebase Timestamp (tem método toDate)
+    if (typeof value === 'object' && typeof (value as { toDate?: () => Date }).toDate === 'function') {
+      return (value as { toDate: () => Date }).toDate();
+    }
+
+    // Número (unix timestamp)
+    if (typeof value === 'number') {
+      const date = new Date(value);
+      return isNaN(date.getTime()) ? fallback : date;
+    }
+
+    return fallback;
+  };
+
+  const now = new Date();
+
+  return {
+    id: note.id,
+    userId: note.userId,
+    visitId: note.visitId,
+    date: note.date,
+    bed: note.bed,
+    reference: note.reference,
+    note: note.note,
+    tags: note.tags,
+    syncStatus: note.syncStatus,
+    createdAt: normalizeDate(note.createdAt, now),
+    updatedAt: note.updatedAt ? normalizeDate(note.updatedAt, now) : undefined,
+    expiresAt: normalizeDate(note.expiresAt, now),
+    syncedAt: note.syncedAt ? normalizeDate(note.syncedAt, now) : undefined,
+  };
+}
 
 export interface SyncStatus {
   isSyncing: boolean;
@@ -569,7 +643,8 @@ async function processNoteSyncItem(item: SyncQueueItem, firestore: Firestore): P
     throw new Error('Payload inválido na fila de sincronização');
   }
 
-  const noteData = notePayload as unknown as DocumentData;
+  // Serializar note com timestamps normalizados para Firestore
+  const noteData = serializeNoteForFirestore(notePayload);
   const noteRef = doc(firestore, 'users', item.userId, 'notes', item.entityId);
 
   // === SYNC LEGADO (sempre executa) ===
@@ -579,7 +654,7 @@ async function processNoteSyncItem(item: SyncQueueItem, firestore: Firestore): P
 
   if (item.operation === 'update') {
     // Sem fallback setDoc merge - erro será tratado em handleSyncError
-    await updateDoc(noteRef, noteData as UpdateData<DocumentData>);
+    await updateDoc(noteRef, noteData as unknown as UpdateData<DocumentData>);
   }
 
   if (item.operation === 'delete') {
