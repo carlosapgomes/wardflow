@@ -9,7 +9,7 @@ import { liveQuery, type Subscription } from 'dexie';
 import { navigate, getCurrentRoute } from '@/router/router';
 import { getAllNotes, deleteNotes } from '@/services/db/notes-service';
 import { getCurrentUserVisitMember } from '@/services/db/visit-members-service';
-import { getVisitById, deletePrivateVisit } from '@/services/db/visits-service';
+import { getVisitById, deletePrivateVisit, leaveVisit, deleteGroupVisitAsOwner } from '@/services/db/visits-service';
 import { canEditNote, canDeleteNote, getVisitAccessState, type VisitAccessState } from '@/services/auth/visit-permissions';
 import { getDashboardGroupActions } from '@/services/auth/dashboard-actions-policy';
 import { groupNotesByDateAndTag } from '@/utils/group-notes-by-date-and-tag';
@@ -51,6 +51,7 @@ export class DashboardView extends LitElement {
   @state() private actions: DashboardAction[] = [];
   @state() private isDeleteConfirmOpen = false;
   @state() private isVisitDeleteConfirmOpen = false;
+  @state() private isLeaveVisitConfirmOpen = false;
 
   private notesSubscription: Subscription | null = null;
 
@@ -303,6 +304,16 @@ export class DashboardView extends LitElement {
     return this.currentVisit?.mode === 'private' && this.member?.role === 'owner' && this.accessState === 'active';
   }
 
+  private canDeleteGroupVisitForAll(): boolean {
+    return this.currentVisit?.mode === 'group' && this.member?.role === 'owner' && this.accessState === 'active';
+  }
+
+  private canLeaveGroupVisit(): boolean {
+    return this.currentVisit?.mode === 'group'
+      && (this.member?.role === 'editor' || this.member?.role === 'viewer')
+      && this.accessState === 'active';
+  }
+
   private handleVisitDeleteClick = (): void => {
     this.isVisitDeleteConfirmOpen = true;
   };
@@ -318,14 +329,44 @@ export class DashboardView extends LitElement {
     }
 
     try {
-      await deletePrivateVisit(this.visitId);
+      if (this.canDeletePrivateVisit()) {
+        await deletePrivateVisit(this.visitId);
+      } else if (this.canDeleteGroupVisitForAll()) {
+        await deleteGroupVisitAsOwner(this.visitId);
+      }
       this.showTemporaryToast('Visita excluída');
       navigate('/dashboard');
     } catch (error) {
-      console.error('Erro ao excluir visita privada:', error);
+      console.error('Erro ao excluir visita:', error);
       this.showTemporaryToast('Erro ao excluir visita');
     } finally {
       this.isVisitDeleteConfirmOpen = false;
+    }
+  };
+
+  private handleLeaveVisitClick = (): void => {
+    this.isLeaveVisitConfirmOpen = true;
+  };
+
+  private handleLeaveVisitCancel = (): void => {
+    this.isLeaveVisitConfirmOpen = false;
+  };
+
+  private handleLeaveVisitConfirm = async (): Promise<void> => {
+    if (!this.visitId) {
+      this.isLeaveVisitConfirmOpen = false;
+      return;
+    }
+
+    try {
+      await leaveVisit(this.visitId);
+      this.showTemporaryToast('Você saiu da visita');
+      navigate('/dashboard');
+    } catch (error) {
+      console.error('Erro ao sair da visita:', error);
+      this.showTemporaryToast('Erro ao sair da visita');
+    } finally {
+      this.isLeaveVisitConfirmOpen = false;
     }
   };
 
@@ -444,13 +485,31 @@ export class DashboardView extends LitElement {
       <app-header title=${title} ?showBack=${true} @back-click=${this.handleBackClick}></app-header>
       <sync-status-bar></sync-status-bar>
 
-      <main class="container-fluid wf-page-container wf-with-header wf-sheet-safe pb-4">
-        ${this.canDeletePrivateVisit()
+      <main class="container-fluid wf-page-container wf-with-header-sync wf-sheet-safe pb-4">
+        ${this.canDeletePrivateVisit() || this.canDeleteGroupVisitForAll() || this.canLeaveGroupVisit()
           ? html`
-              <div class="mb-3 d-flex justify-content-end">
-                <button type="button" class="btn btn-outline-danger" @click=${this.handleVisitDeleteClick}>
-                  Excluir visita
-                </button>
+              <div class="mb-3 d-flex justify-content-end gap-2 flex-wrap">
+                ${this.canDeletePrivateVisit()
+                  ? html`
+                      <button type="button" class="btn btn-outline-danger" @click=${this.handleVisitDeleteClick}>
+                        Excluir visita
+                      </button>
+                    `
+                  : ''}
+                ${this.canDeleteGroupVisitForAll()
+                  ? html`
+                      <button type="button" class="btn btn-outline-danger" @click=${this.handleVisitDeleteClick}>
+                        Excluir visita para todos
+                      </button>
+                    `
+                  : ''}
+                ${this.canLeaveGroupVisit()
+                  ? html`
+                      <button type="button" class="btn btn-outline-secondary" @click=${this.handleLeaveVisitClick}>
+                        Sair da visita
+                      </button>
+                    `
+                  : ''}
               </div>
             `
           : ''}
@@ -531,7 +590,10 @@ export class DashboardView extends LitElement {
         @sheet-closed=${this.handleSheetClosed}
       ></action-sheet>
 
-      ${this.renderToast()} ${this.renderDeleteConfirm()} ${this.renderVisitDeleteConfirm()}
+      ${this.renderToast()}
+      ${this.renderDeleteConfirm()}
+      ${this.renderVisitDeleteConfirm()}
+      ${this.renderLeaveVisitConfirm()}
     `;
   }
 
@@ -572,20 +634,27 @@ export class DashboardView extends LitElement {
   private renderVisitDeleteConfirm() {
     if (!this.isVisitDeleteConfirmOpen) return null;
 
+    const isGroupDelete = this.canDeleteGroupVisitForAll();
+    const title = isGroupDelete ? 'Excluir visita para todos?' : 'Excluir visita?';
+    const body = isGroupDelete
+      ? 'Esta visita colaborativa será removida para todos os membros.'
+      : 'Esta visita privada e todas as suas notas serão excluídas.';
+    const actionLabel = isGroupDelete ? 'Excluir visita para todos' : 'Excluir visita';
+
     return html`
       <div class="modal-backdrop fade show"></div>
       <div class="modal d-block" tabindex="-1" @click=${this.handleVisitDeleteCancel}>
         <div class="modal-dialog modal-dialog-centered modal-sm" @click=${(e: Event) => { e.stopPropagation(); }}>
           <div class="modal-content border-0 shadow">
             <div class="modal-body p-4">
-              <h3 class="h6 mb-2">Excluir visita?</h3>
-              <p class="text-secondary mb-3">Esta visita privada e todas as suas notas serão excluídas.</p>
+              <h3 class="h6 mb-2">${title}</h3>
+              <p class="text-secondary mb-3">${body}</p>
               <div class="d-grid gap-2 d-sm-flex justify-content-end">
                 <button type="button" class="btn btn-outline-secondary" @click=${this.handleVisitDeleteCancel}>
                   Cancelar
                 </button>
                 <button type="button" class="btn btn-danger" @click=${this.handleVisitDeleteConfirm}>
-                  Excluir visita
+                  ${actionLabel}
                 </button>
               </div>
             </div>
@@ -594,6 +663,33 @@ export class DashboardView extends LitElement {
       </div>
     `;
   }
+
+  private renderLeaveVisitConfirm() {
+    if (!this.isLeaveVisitConfirmOpen) return null;
+
+    return html`
+      <div class="modal-backdrop fade show"></div>
+      <div class="modal d-block" tabindex="-1" @click=${this.handleLeaveVisitCancel}>
+        <div class="modal-dialog modal-dialog-centered modal-sm" @click=${(e: Event) => { e.stopPropagation(); }}>
+          <div class="modal-content border-0 shadow">
+            <div class="modal-body p-4">
+              <h3 class="h6 mb-2">Sair da visita?</h3>
+              <p class="text-secondary mb-3">Você perderá acesso a esta visita.</p>
+              <div class="d-grid gap-2 d-sm-flex justify-content-end">
+                <button type="button" class="btn btn-outline-secondary" @click=${this.handleLeaveVisitCancel}>
+                  Cancelar
+                </button>
+                <button type="button" class="btn btn-danger" @click=${this.handleLeaveVisitConfirm}>
+                  Sair da visita
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
 }
 
 declare global {

@@ -6,7 +6,7 @@
 import { db } from './dexie-db';
 import { createVisit, generatePrivateVisitName, getCurrentDate, type Visit } from '@/models/visit';
 import { createNote, type Note } from '@/models/note';
-import { createSyncQueueItem } from '@/models/sync-queue';
+import { createSyncQueueItem, type SyncQueueItem } from '@/models/sync-queue';
 import { normalizeTagList } from '@/models/tag';
 import { getAuthState } from '@/services/auth/auth-service';
 import { createOwnerVisitMember, getVisitMember } from './visit-members-service';
@@ -107,6 +107,40 @@ function triggerImmediateSync(): void {
     .catch((error: unknown) => {
       console.warn('[Visitas] Sync imediato falhou (best-effort):', error);
     });
+}
+
+function getVisitIdFromSyncQueueItem(item: SyncQueueItem): string | null {
+  if (item.entityType === 'visit') {
+    return item.entityId;
+  }
+
+  if (item.entityType === 'visit-member') {
+    const [visitId] = item.entityId.split(':');
+    return visitId || null;
+  }
+
+  if (item.entityType !== 'note') {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(item.payload) as { visitId?: unknown };
+    return typeof payload.visitId === 'string' && payload.visitId.trim() !== ''
+      ? payload.visitId
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function removePendingSyncItemsForVisitInTransaction(userId: string, visitId: string): Promise<void> {
+  const pendingItems = await db.syncQueue.where('userId').equals(userId).toArray();
+
+  for (const item of pendingItems) {
+    if (getVisitIdFromSyncQueueItem(item) === visitId) {
+      await db.syncQueue.delete(item.id);
+    }
+  }
 }
 
 /**
@@ -212,6 +246,8 @@ export async function deletePrivateVisit(visitId: string): Promise<void> {
   await db.transaction('rw', [db.visits, db.visitMembers, db.notes, db.syncQueue], async () => {
     const notesToDelete = await db.notes.where('visitId').equals(visitId).toArray();
 
+    await removePendingSyncItemsForVisitInTransaction(userId, visitId);
+
     if (notesToDelete.length > 0) {
       await db.notes.bulkDelete(notesToDelete.map((note) => note.id));
 
@@ -229,6 +265,123 @@ export async function deletePrivateVisit(visitId: string): Promise<void> {
 
   // Sync imediato se online + autenticado (fire-and-forget)
   triggerImmediateSync();
+}
+
+/**
+ * Usuário não-owner sai de uma visita em grupo
+ */
+export async function leaveVisit(visitId: string): Promise<void> {
+  const userId = requireUserId();
+  const member = await getVisitMember(visitId, userId);
+
+  if (!member || member.status !== 'active') {
+    throw new Error('Membership ativo não encontrado');
+  }
+
+  if (member.role === 'owner') {
+    throw new Error('Owner não pode sair da visita neste fluxo');
+  }
+
+  const now = new Date();
+  const removedMember: VisitMember = {
+    ...member,
+    status: 'removed',
+    removedAt: now,
+    updatedAt: now,
+  };
+
+  await db.transaction('rw', [db.visitMembers, db.visits, db.notes, db.syncQueue], async () => {
+    await removePendingSyncItemsForVisitInTransaction(userId, visitId);
+
+    await db.visitMembers.put(removedMember);
+    await queueVisitMemberForSyncInTransaction('update', removedMember);
+
+    const visitNotes = await db.notes.where('visitId').equals(visitId).toArray();
+    if (visitNotes.length > 0) {
+      await db.notes.bulkDelete(visitNotes.map((note) => note.id));
+    }
+
+    await db.visits.delete(visitId);
+  });
+
+  triggerImmediateSync();
+}
+
+interface DeleteVisitEndpointResponse {
+  status: 'deleted';
+  visitId: string;
+}
+
+/**
+ * Owner exclui visita colaborativa para todos via endpoint autenticado.
+ */
+export async function deleteGroupVisitAsOwner(visitId: string): Promise<void> {
+  const { user } = getAuthState();
+
+  if (!user) {
+    throw new Error('Usuário não autenticado.');
+  }
+
+  const visit = await db.visits.get(visitId);
+  if (!visit) {
+    throw new Error('Visita não encontrada');
+  }
+
+  if (visit.mode !== 'group') {
+    throw new Error('Apenas visitas colaborativas podem ser excluídas neste fluxo');
+  }
+
+  validateOwnership(visit, user.uid);
+
+  const member = await getVisitMember(visitId, user.uid);
+  if (!member || member.role !== 'owner' || member.status !== 'active') {
+    throw new Error('Acesso negado: somente owner ativo pode excluir visita colaborativa');
+  }
+
+  const idToken = await user.getIdToken();
+  const response = await fetch('/api/visits/delete', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${idToken}`,
+    },
+    body: JSON.stringify({ visitId }),
+  });
+
+  if (response.status === 401) {
+    throw new Error('Usuário não autenticado.');
+  }
+
+  if (response.status === 400) {
+    throw new Error('Requisição inválida.');
+  }
+
+  if (response.status === 403) {
+    throw new Error('Acesso negado.');
+  }
+
+  if (response.status >= 500) {
+    throw new Error('Erro no servidor.');
+  }
+
+  const result = await response.json() as unknown;
+
+  if (!result || typeof result !== 'object') {
+    throw new Error('Resposta inválida do servidor.');
+  }
+
+  const resultObj = result as Partial<DeleteVisitEndpointResponse>;
+  if (resultObj.status !== 'deleted' || resultObj.visitId !== visitId) {
+    throw new Error('Resposta inválida do servidor.');
+  }
+
+  await db.transaction('rw', [db.visits, db.visitMembers, db.notes, db.visitInvites, db.syncQueue], async () => {
+    await removePendingSyncItemsForVisitInTransaction(user.uid, visitId);
+    await db.notes.where('visitId').equals(visitId).delete();
+    await db.visitMembers.where('visitId').equals(visitId).delete();
+    await db.visitInvites.where('visitId').equals(visitId).delete();
+    await db.visits.delete(visitId);
+  });
 }
 
 /**

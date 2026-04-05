@@ -1283,6 +1283,82 @@ interface FirestoreVisitData {
   updatedAt?: unknown;
 }
 
+interface MembershipReconciliationInput {
+  localMembershipVisitIds: string[];
+  remoteMemberships: VisitMember[];
+}
+
+interface MembershipReconciliationResult {
+  activeVisitIds: string[];
+  removedVisitIds: string[];
+  orphanedVisitIds: string[];
+}
+
+export function reconcileMembershipVisitIds(input: MembershipReconciliationInput): MembershipReconciliationResult {
+  const remoteVisitIds = new Set(input.remoteMemberships.map((member) => member.visitId));
+
+  const activeVisitIds = [...new Set(
+    input.remoteMemberships
+      .filter((member) => member.status === 'active')
+      .map((member) => member.visitId)
+  )];
+
+  const removedVisitIds = [...new Set(
+    input.remoteMemberships
+      .filter((member) => member.status === 'removed')
+      .map((member) => member.visitId)
+  )];
+
+  const orphanedVisitIds = [...new Set(
+    input.localMembershipVisitIds.filter((visitId) => !remoteVisitIds.has(visitId))
+  )];
+
+  return { activeVisitIds, removedVisitIds, orphanedVisitIds };
+}
+
+function getVisitIdFromSyncQueueItem(item: SyncQueueItem): string | null {
+  if (item.entityType === 'visit') {
+    return item.entityId;
+  }
+
+  if (item.entityType === 'visit-member') {
+    const [visitId] = item.entityId.split(':');
+    return visitId || null;
+  }
+
+  if (item.entityType !== 'note') {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(item.payload) as { visitId?: unknown };
+    return typeof payload.visitId === 'string' && payload.visitId.trim() !== ''
+      ? payload.visitId
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function removePendingSyncItemsForVisitInTransaction(userId: string, visitId: string): Promise<void> {
+  const pendingItems = await db.syncQueue.where('userId').equals(userId).toArray();
+
+  for (const item of pendingItems) {
+    if (getVisitIdFromSyncQueueItem(item) === visitId) {
+      await db.syncQueue.delete(item.id);
+    }
+  }
+}
+
+async function removeVisitDataLocally(visitId: string, userId: string): Promise<void> {
+  await db.transaction('rw', [db.visits, db.notes, db.visitMembers, db.syncQueue], async () => {
+    await removePendingSyncItemsForVisitInTransaction(userId, visitId);
+    await db.notes.where('visitId').equals(visitId).delete();
+    await db.visits.delete(visitId);
+    await db.visitMembers.where('visitId').equals(visitId).delete();
+  });
+}
+
 /**
  * Converte dados de membership remoto para formato local
  */
@@ -1335,7 +1411,6 @@ function convertFirestoreVisitToLocal(
 export async function pullRemoteVisitMembershipsAndVisits(): Promise<void> {
   const { user, loading } = getAuthState();
 
-  // Pré-condições
   if (loading || !user) {
     return;
   }
@@ -1352,8 +1427,6 @@ export async function pullRemoteVisitMembershipsAndVisits(): Promise<void> {
   }
 
   try {
-    // Query collectionGroup('members') por userId
-    // (status é filtrado localmente para evitar índice composto remoto obrigatório)
     const membersQuery = query(
       collectionGroup(firestore, 'members'),
       where('userId', '==', user.uid)
@@ -1361,63 +1434,50 @@ export async function pullRemoteVisitMembershipsAndVisits(): Promise<void> {
 
     const membersSnapshot = await getDocs(membersQuery);
 
-    if (membersSnapshot.empty) {
-      console.log('[VisitaMed] Nenhum membership remoto encontrado');
-      return;
-    }
-
-    // Filtrar apenas memberships ativos e upsert local
-    const activeMembers: VisitMember[] = [];
-
+    const remoteMembers: VisitMember[] = [];
     for (const docSnap of membersSnapshot.docs) {
       const data = docSnap.data() as FirestoreMemberData;
-
-      // Filtrar apenas status === 'active'
-      if (data.status !== 'active') {
-        continue;
-      }
-
-      // Se não tem visitId, pular
       if (!data.visitId) {
         continue;
       }
-
-      const member = convertFirestoreMemberToLocal(data);
-      activeMembers.push(member);
+      remoteMembers.push(convertFirestoreMemberToLocal(data));
     }
 
-    if (activeMembers.length === 0) {
-      console.log('[VisitaMed] Nenhum membership ativo encontrado');
-      return;
+    if (remoteMembers.length > 0) {
+      await db.visitMembers.bulkPut(remoteMembers);
     }
 
-    // Bulk upsert memberships locais
-    await db.visitMembers.bulkPut(activeMembers);
-    console.log(`[VisitaMed] ${String(activeMembers.length)} memberships hydratados localmente`);
+    const localUserMemberships = await db.visitMembers.where('userId').equals(user.uid).toArray();
+    const reconciliation = reconcileMembershipVisitIds({
+      localMembershipVisitIds: localUserMemberships.map((member) => member.visitId),
+      remoteMemberships: remoteMembers,
+    });
 
-    // Para cada membership ativo, buscar visita correspondente
-    const visitIds = [...new Set(activeMembers.map((m) => m.visitId))];
+    const visitIdsToClean = new Set<string>([
+      ...reconciliation.removedVisitIds,
+      ...reconciliation.orphanedVisitIds,
+    ]);
 
-    for (const visitId of visitIds) {
+    for (const visitId of reconciliation.activeVisitIds) {
       try {
         const visitRef = doc(firestore, 'visits', visitId);
         const visitSnap = await getDoc(visitRef);
 
         if (!visitSnap.exists()) {
-          console.warn(`[VisitaMed] Visita ${visitId} não encontrada no Firestore`);
+          visitIdsToClean.add(visitId);
           continue;
         }
 
         const visitData = visitSnap.data() as FirestoreVisitData;
         const visit = convertFirestoreVisitToLocal(visitId, visitData, user.uid);
-
-        // Upsert visita local
         await db.visits.put(visit);
-        console.log(`[VisitaMed] Visita ${visitId} hidratada localmente`);
       } catch (visitError) {
-        // Best-effort: erro de uma visita não aborta o restante
         console.warn(`[VisitaMed] Erro ao hidratar visita ${visitId}:`, visitError);
       }
+    }
+
+    for (const visitId of visitIdsToClean) {
+      await removeVisitDataLocally(visitId, user.uid);
     }
 
     console.log('[VisitaMed] Pull de memberships e visitas concluído');

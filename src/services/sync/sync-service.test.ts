@@ -37,8 +37,10 @@ vi.mock('@/services/db/dexie-db', () => ({
     transaction: vi.fn(),
     notes: {
       where: vi.fn(() => ({
-        equals: vi.fn().mockReturnThis(),
-        toArray: vi.fn().mockResolvedValue([]),
+        equals: vi.fn(() => ({
+          toArray: vi.fn().mockResolvedValue([]),
+          delete: vi.fn().mockResolvedValue(0),
+        })),
       })),
       get: vi.fn(),
       update: vi.fn(),
@@ -66,12 +68,15 @@ vi.mock('@/services/db/dexie-db', () => ({
     },
     visits: {
       put: vi.fn().mockResolvedValue(undefined),
+      delete: vi.fn().mockResolvedValue(undefined),
     },
     visitMembers: {
       where: vi.fn(() => ({
-        equals: vi.fn().mockReturnThis(),
-        and: vi.fn().mockReturnThis(),
-        toArray: vi.fn().mockResolvedValue([]),
+        equals: vi.fn(() => ({
+          and: vi.fn().mockReturnThis(),
+          toArray: vi.fn().mockResolvedValue([]),
+          delete: vi.fn().mockResolvedValue(0),
+        })),
       })),
       bulkPut: vi.fn().mockResolvedValue(undefined),
     },
@@ -654,6 +659,39 @@ describe('sync-service - resolveSettingsConflict', () => {
   });
 });
 
+describe('sync-service - reconcileMembershipVisitIds', () => {
+  it('separa visitIds ativos, removidos e órfãos', () => {
+    const result = syncService.reconcileMembershipVisitIds({
+      localMembershipVisitIds: ['visit-1', 'visit-2', 'visit-3'],
+      remoteMemberships: [
+        {
+          id: 'visit-1:user-123',
+          visitId: 'visit-1',
+          userId: 'user-123',
+          role: 'owner',
+          status: 'active',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        {
+          id: 'visit-2:user-123',
+          visitId: 'visit-2',
+          userId: 'user-123',
+          role: 'viewer',
+          status: 'removed',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          removedAt: new Date(),
+        },
+      ],
+    });
+
+    expect(result.activeVisitIds).toEqual(['visit-1']);
+    expect(result.removedVisitIds).toEqual(['visit-2']);
+    expect(result.orphanedVisitIds).toEqual(['visit-3']);
+  });
+});
+
 describe('sync-service - pullRemoteVisitMembershipsAndVisits', () => {
   const mockedGetAuthState = vi.mocked(getAuthState);
   const mockedGetFirebaseFirestore = vi.mocked(getFirebaseFirestore);
@@ -665,8 +703,9 @@ describe('sync-service - pullRemoteVisitMembershipsAndVisits', () => {
   const mockedGetDoc = vi.mocked(getDoc);
 
   const mockedDb = db as unknown as {
-    visitMembers: { bulkPut: ReturnType<typeof vi.fn> };
-    visits: { put: ReturnType<typeof vi.fn> };
+    visitMembers: { bulkPut: ReturnType<typeof vi.fn>; where: ReturnType<typeof vi.fn> };
+    visits: { put: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
+    notes: { where: ReturnType<typeof vi.fn> };
   };
 
   const setupDefaults = () => {
@@ -732,7 +771,7 @@ describe('sync-service - pullRemoteVisitMembershipsAndVisits', () => {
     expect(mockedDb.visits.put).toHaveBeenCalledWith(expect.objectContaining({ id: 'visit-1' }));
   });
 
-  it('ignora memberships removidos', async () => {
+  it('reconcilia memberships removidos limpando visita local', async () => {
     setupDefaults();
 
     mockedGetDocs.mockResolvedValue({
@@ -755,7 +794,7 @@ describe('sync-service - pullRemoteVisitMembershipsAndVisits', () => {
 
     await syncService.pullRemoteVisitMembershipsAndVisits();
 
-    expect(mockedDb.visitMembers.bulkPut).not.toHaveBeenCalled();
+    expect(mockedDb.visitMembers.bulkPut).toHaveBeenCalledTimes(1);
     expect(mockedGetDoc).not.toHaveBeenCalled();
     expect(mockedDb.visits.put).not.toHaveBeenCalled();
   });

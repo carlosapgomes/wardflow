@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createOwnerVisitMember } from './visit-members-service';
-import { duplicateVisitAsPrivate, deletePrivateVisit } from './visits-service';
+import { duplicateVisitAsPrivate, deletePrivateVisit, leaveVisit, deleteGroupVisitAsOwner } from './visits-service';
 import type { Visit } from '@/models/visit';
 import type { Note } from '@/models/note';
 import type { VisitMember } from '@/models/visit-member';
@@ -19,6 +19,7 @@ vi.mock('./dexie-db', () => ({
     visits: {
       get: vi.fn(),
       add: vi.fn(),
+      put: vi.fn(),
       delete: vi.fn(),
       where: vi.fn(() => ({
         equals: vi.fn(() => ({
@@ -31,19 +32,39 @@ vi.mock('./dexie-db', () => ({
     visitMembers: {
       get: vi.fn(),
       add: vi.fn(),
+      put: vi.fn(),
       delete: vi.fn(),
+      where: vi.fn(() => ({
+        equals: vi.fn(() => ({
+          delete: vi.fn().mockResolvedValue(0),
+        })),
+      })),
     },
     notes: {
       where: vi.fn(() => ({
         equals: vi.fn(() => ({
           toArray: vi.fn().mockResolvedValue([]),
+          delete: vi.fn().mockResolvedValue(0),
         })),
       })),
       add: vi.fn(),
       bulkDelete: vi.fn(),
     },
+    visitInvites: {
+      where: vi.fn(() => ({
+        equals: vi.fn(() => ({
+          delete: vi.fn().mockResolvedValue(0),
+        })),
+      })),
+    },
     syncQueue: {
       add: vi.fn(),
+      delete: vi.fn(),
+      where: vi.fn(() => ({
+        equals: vi.fn(() => ({
+          toArray: vi.fn().mockResolvedValue([]),
+        })),
+      })),
     },
     transaction: vi.fn(async (_mode: string, _stores: string[], fn: () => Promise<void>) => {
       return fn();
@@ -128,7 +149,7 @@ describe('duplicateVisitAsPrivate', () => {
     visits: { get: ReturnType<typeof vi.fn>; add: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
     visitMembers: { get: ReturnType<typeof vi.fn>; add: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
     notes: { where: ReturnType<typeof vi.fn>; add: ReturnType<typeof vi.fn>; bulkDelete: ReturnType<typeof vi.fn> };
-    syncQueue: { add: ReturnType<typeof vi.fn> };
+    syncQueue: { add: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn>; where: ReturnType<typeof vi.fn> };
     transaction: ReturnType<typeof vi.fn>;
   };
   const mockGetAuthStateFn = getAuthState as unknown as ReturnType<typeof vi.fn>;
@@ -319,7 +340,7 @@ describe('deletePrivateVisit', () => {
     visits: { get: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
     visitMembers: { get: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
     notes: { where: ReturnType<typeof vi.fn>; bulkDelete: ReturnType<typeof vi.fn> };
-    syncQueue: { add: ReturnType<typeof vi.fn> };
+    syncQueue: { add: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn>; where: ReturnType<typeof vi.fn> };
     transaction: ReturnType<typeof vi.fn>;
   };
   const mockGetAuthStateFn = getAuthState as unknown as ReturnType<typeof vi.fn>;
@@ -334,10 +355,24 @@ describe('deletePrivateVisit', () => {
     mockDb.notes.bulkDelete.mockResolvedValue(undefined);
   });
 
-  it('deve remover visita privada vazia e enfileirar deletes de visit/member', async () => {
+  it('deve remover visita privada vazia, limpar fila pendente da visita e enfileirar deletes de visit/member', async () => {
     mockDb.notes.where.mockReturnValue({
       equals: vi.fn().mockReturnValue({
         toArray: vi.fn().mockResolvedValue([]),
+      }),
+    } as { equals: ReturnType<typeof vi.fn> });
+
+    mockDb.syncQueue.where.mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: 'pending-note-1',
+            userId: mockUserId,
+            entityType: 'note',
+            entityId: 'note-1',
+            payload: JSON.stringify({ visitId: mockVisitId }),
+          },
+        ]),
       }),
     } as { equals: ReturnType<typeof vi.fn> });
 
@@ -348,6 +383,7 @@ describe('deletePrivateVisit', () => {
 
     await deletePrivateVisit(mockVisitId);
 
+    expect(mockDb.syncQueue.delete).toHaveBeenCalledWith('pending-note-1');
     expect(mockDb.notes.bulkDelete).not.toHaveBeenCalled();
     expect(mockDb.visitMembers.delete).toHaveBeenCalledWith(`${mockVisitId}:${mockUserId}`);
     expect(mockDb.visits.delete).toHaveBeenCalledWith(mockVisitId);
@@ -415,6 +451,170 @@ describe('deletePrivateVisit', () => {
   });
 });
 
+describe('leaveVisit', () => {
+  const mockUserId = 'user-editor';
+  const mockVisitId = 'visit-group-1';
+
+  const mockDb = db as unknown as {
+    visitMembers: { get: ReturnType<typeof vi.fn>; put: ReturnType<typeof vi.fn> };
+    visits: { delete: ReturnType<typeof vi.fn> };
+    notes: { where: ReturnType<typeof vi.fn>; bulkDelete: ReturnType<typeof vi.fn> };
+    syncQueue: { add: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn>; where: ReturnType<typeof vi.fn> };
+  };
+  const mockGetAuthStateFn = getAuthState as unknown as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetAuthStateFn.mockReturnValue({ user: { uid: mockUserId } });
+    mockDb.visitMembers.put.mockResolvedValue(undefined);
+    mockDb.visits.delete.mockResolvedValue(undefined);
+    mockDb.notes.bulkDelete.mockResolvedValue(undefined);
+  });
+
+  it('falha para owner', async () => {
+    mockDb.visitMembers.get.mockResolvedValue({
+      id: `${mockVisitId}:${mockUserId}`,
+      visitId: mockVisitId,
+      userId: mockUserId,
+      role: 'owner',
+      status: 'active',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as VisitMember);
+
+    await expect(leaveVisit(mockVisitId)).rejects.toThrow('Owner não pode sair da visita neste fluxo');
+  });
+
+  it('funciona para editor ativo e limpa fila pendente da visita', async () => {
+    mockDb.visitMembers.get.mockResolvedValue({
+      id: `${mockVisitId}:${mockUserId}`,
+      visitId: mockVisitId,
+      userId: mockUserId,
+      role: 'editor',
+      status: 'active',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as VisitMember);
+
+    mockDb.syncQueue.where.mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: 'pending-note-1',
+            userId: mockUserId,
+            entityType: 'note',
+            entityId: 'note-1',
+            payload: JSON.stringify({ visitId: mockVisitId }),
+          },
+        ]),
+      }),
+    } as { equals: ReturnType<typeof vi.fn> });
+
+    mockDb.notes.where.mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([]),
+      }),
+    } as { equals: ReturnType<typeof vi.fn> });
+
+    await leaveVisit(mockVisitId);
+
+    expect(mockDb.syncQueue.delete).toHaveBeenCalledWith('pending-note-1');
+    expect(mockDb.visitMembers.put).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'removed',
+    }));
+    expect(mockDb.visits.delete).toHaveBeenCalledWith(mockVisitId);
+  });
+});
+
+describe('deleteGroupVisitAsOwner', () => {
+  const mockUserId = 'user-owner';
+  const mockVisitId = 'visit-group-1';
+
+  const mockDb = db as unknown as {
+    visits: { get: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
+    visitMembers: { get: ReturnType<typeof vi.fn>; where: ReturnType<typeof vi.fn> };
+    notes: { where: ReturnType<typeof vi.fn> };
+    visitInvites: { where: ReturnType<typeof vi.fn> };
+    syncQueue: { delete: ReturnType<typeof vi.fn>; where: ReturnType<typeof vi.fn> };
+  };
+  const mockGetAuthStateFn = getAuthState as unknown as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      status: 200,
+      json: () => Promise.resolve({ status: 'deleted', visitId: mockVisitId }),
+    }));
+
+    mockGetAuthStateFn.mockReturnValue({
+      user: {
+        uid: mockUserId,
+        getIdToken: vi.fn().mockResolvedValue('id-token'),
+      },
+    });
+
+    mockDb.visits.get.mockResolvedValue({
+      id: mockVisitId,
+      userId: mockUserId,
+      name: 'Visita grupo',
+      date: '2026-04-05',
+      mode: 'group',
+      createdAt: new Date(),
+    } as Visit);
+
+    mockDb.visitMembers.get.mockResolvedValue({
+      id: `${mockVisitId}:${mockUserId}`,
+      visitId: mockVisitId,
+      userId: mockUserId,
+      role: 'owner',
+      status: 'active',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as VisitMember);
+  });
+
+  it('valida visita group + owner antes de chamar endpoint', async () => {
+    mockDb.visits.get.mockResolvedValue({
+      id: mockVisitId,
+      userId: mockUserId,
+      name: 'Visita privada',
+      date: '2026-04-05',
+      mode: 'private',
+      createdAt: new Date(),
+    } as Visit);
+
+    await expect(deleteGroupVisitAsOwner(mockVisitId)).rejects.toThrow('Apenas visitas colaborativas podem ser excluídas neste fluxo');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('chama endpoint e limpa dados locais e fila pendente quando sucesso', async () => {
+    const deleteByWhere = vi.fn().mockResolvedValue(1);
+    mockDb.syncQueue.where.mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: 'pending-note-1',
+            userId: mockUserId,
+            entityType: 'note',
+            entityId: 'note-1',
+            payload: JSON.stringify({ visitId: mockVisitId }),
+          },
+        ]),
+      }),
+    } as { equals: ReturnType<typeof vi.fn> });
+    mockDb.notes.where.mockReturnValue({ equals: vi.fn().mockReturnValue({ delete: deleteByWhere }) } as { equals: ReturnType<typeof vi.fn> });
+    mockDb.visitMembers.where.mockReturnValue({ equals: vi.fn().mockReturnValue({ delete: deleteByWhere }) } as { equals: ReturnType<typeof vi.fn> });
+    mockDb.visitInvites.where.mockReturnValue({ equals: vi.fn().mockReturnValue({ delete: deleteByWhere }) } as { equals: ReturnType<typeof vi.fn> });
+    mockDb.visits.delete.mockResolvedValue(undefined);
+
+    await deleteGroupVisitAsOwner(mockVisitId);
+
+    expect(fetch).toHaveBeenCalledWith('/api/visits/delete', expect.objectContaining({ method: 'POST' }));
+    expect(mockDb.syncQueue.delete).toHaveBeenCalledWith('pending-note-1');
+    expect(mockDb.visits.delete).toHaveBeenCalledWith(mockVisitId);
+  });
+});
+
 // Testes para createPrivateVisit com dedupe
 const { createPrivateVisit } = await import('./visits-service');
 
@@ -442,7 +642,7 @@ describe('createPrivateVisit - nome opcional e dedupe', () => {
     };
     visitMembers: { get: ReturnType<typeof vi.fn>; add: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
     notes: { where: ReturnType<typeof vi.fn>; add: ReturnType<typeof vi.fn>; bulkDelete: ReturnType<typeof vi.fn> };
-    syncQueue: { add: ReturnType<typeof vi.fn> };
+    syncQueue: { add: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn>; where: ReturnType<typeof vi.fn> };
     transaction: ReturnType<typeof vi.fn>;
   };
   const mockGetAuthState = getAuthState as unknown as ReturnType<typeof vi.fn>;

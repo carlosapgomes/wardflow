@@ -43,6 +43,15 @@ interface AcceptInviteResponse {
   visitId?: string;
 }
 
+interface DeleteVisitRequest {
+  visitId: string;
+}
+
+interface DeleteVisitResponse {
+  status: 'deleted';
+  visitId: string;
+}
+
 interface InviteRecord {
   id: string;
   visitId: string;
@@ -53,6 +62,25 @@ interface InviteRecord {
 
 function setCors(res: Response): void {
   res.set('Access-Control-Allow-Origin', '*');
+}
+
+async function authenticateRequest(req: Request, res: Response): Promise<admin.auth.DecodedIdToken | null> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    setCors(res);
+    res.status(401).json({ error: 'unauthenticated' });
+    return null;
+  }
+
+  const idToken = authHeader.slice(7);
+
+  try {
+    return await admin.auth().verifyIdToken(idToken);
+  } catch {
+    setCors(res);
+    res.status(401).json({ error: 'unauthenticated' });
+    return null;
+  }
 }
 
 // S11E: Rate limit check por uid
@@ -204,21 +232,8 @@ export const acceptInviteEndpointV2 = onRequest({ region: 'southamerica-east1' }
     return;
   }
 
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    setCors(res);
-    res.status(401).json({ error: 'unauthenticated' });
-    return;
-  }
-
-  const idToken = authHeader.slice(7);
-
-  let decodedToken: admin.auth.DecodedIdToken;
-  try {
-    decodedToken = await admin.auth().verifyIdToken(idToken);
-  } catch {
-    setCors(res);
-    res.status(401).json({ error: 'unauthenticated' });
+  const decodedToken = await authenticateRequest(req, res);
+  if (!decodedToken) {
     return;
   }
 
@@ -300,6 +315,107 @@ export const acceptInviteEndpointV2 = onRequest({ region: 'southamerica-east1' }
     res.status(200).json(response);
   } catch (error) {
     console.error('Error accepting invite:', error);
+    setCors(res);
+    res.status(500).json({ error: 'internal-error' });
+  }
+});
+
+/**
+ * Endpoint autenticado para excluir visita colaborativa para todos
+ * Rota: POST /api/visits/delete
+ */
+export const deleteVisitEndpointV2 = onRequest({ region: 'southamerica-east1' }, async (req: Request, res: Response) => {
+  if (req.method === 'OPTIONS') {
+    setCors(res);
+    res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    res.status(204).send();
+    return;
+  }
+
+  if (req.method !== 'POST') {
+    setCors(res);
+    res.status(405).json({ error: 'method-not-allowed' });
+    return;
+  }
+
+  const decodedToken = await authenticateRequest(req, res);
+  if (!decodedToken) {
+    return;
+  }
+
+  const body = req.body as DeleteVisitRequest | undefined;
+  if (!body || typeof body.visitId !== 'string' || body.visitId.trim() === '') {
+    setCors(res);
+    res.status(400).json({ error: 'invalid-request' });
+    return;
+  }
+
+  const visitId = body.visitId.trim();
+
+  try {
+    const memberRef = firestore.collection('visits').doc(visitId).collection('members').doc(decodedToken.uid);
+    const memberSnap = await memberRef.get();
+
+    if (!memberSnap.exists) {
+      setCors(res);
+      res.status(403).json({ error: 'forbidden' });
+      return;
+    }
+
+    const memberData = memberSnap.data();
+    if (memberData?.['status'] !== 'active' || memberData?.['role'] !== 'owner') {
+      setCors(res);
+      res.status(403).json({ error: 'forbidden' });
+      return;
+    }
+
+    const visitRef = firestore.collection('visits').doc(visitId);
+    const visitSnap = await visitRef.get();
+    if (!visitSnap.exists) {
+      setCors(res);
+      res.status(404).json({ error: 'visit-not-found' });
+      return;
+    }
+
+    const visitData = visitSnap.data();
+    if (visitData?.['mode'] !== 'group') {
+      setCors(res);
+      res.status(400).json({ error: 'invalid-visit-mode' });
+      return;
+    }
+
+    const batchSize = 300;
+    while (true) {
+      const notesSnapshot = await firestore
+        .collectionGroup('notes')
+        .where('visitId', '==', visitId)
+        .limit(batchSize)
+        .get();
+
+      if (notesSnapshot.empty) {
+        break;
+      }
+
+      const batch = firestore.batch();
+      for (const noteDoc of notesSnapshot.docs) {
+        batch.delete(noteDoc.ref);
+      }
+
+      await batch.commit();
+    }
+
+    await firestore.recursiveDelete(visitRef);
+
+    const response: DeleteVisitResponse = {
+      status: 'deleted',
+      visitId,
+    };
+
+    setCors(res);
+    res.status(200).json(response);
+  } catch (error) {
+    console.error('Error deleting visit:', error);
     setCors(res);
     res.status(500).json({ error: 'internal-error' });
   }

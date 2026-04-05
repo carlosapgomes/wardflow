@@ -17,6 +17,13 @@
           "region": "southamerica-east1"
         }
       },
+      {
+        "source": "/api/visits/delete",
+        "function": {
+          "functionId": "deleteVisitEndpointV2",
+          "region": "southamerica-east1"
+        }
+      },
       { "source": "**", "destination": "/index.html" }
     ]
   }
