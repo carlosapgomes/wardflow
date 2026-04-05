@@ -7,12 +7,17 @@ import { LitElement, html } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { navigate, getCurrentRoute } from '@/router/router';
 import { acceptVisitInviteByToken, type AcceptInviteStatus, type AcceptInviteResult } from '@/services/db/visit-invites-service';
+import { getVisitById } from '@/services/db/visits-service';
+import { getCurrentUserVisitMember } from '@/services/db/visit-members-service';
+import { pullRemoteNotes, pullRemoteVisitMembershipsAndVisits, syncNow } from '@/services/sync/sync-service';
 
 @customElement('invite-accept-view')
 export class InviteAcceptView extends LitElement {
   @state() private status: AcceptInviteStatus | null = null;
   @state() private visitId: string | null = null;
   @state() private isLoading = true;
+  @state() private isPreparingVisit = false;
+  @state() private isVisitReady = false;
   @state() private error = '';
 
   protected override createRenderRoot(): HTMLElement {
@@ -39,11 +44,61 @@ export class InviteAcceptView extends LitElement {
       const result: AcceptInviteResult = await acceptVisitInviteByToken(token);
       this.status = result.status;
       this.visitId = result.visitId ?? null;
+
+      const isSuccessfulAccept = result.status === 'accepted' || result.status === 'already-member';
+
+      if (isSuccessfulAccept && result.visitId) {
+        this.isLoading = false;
+        this.isPreparingVisit = true;
+        this.isVisitReady = await this.prepareVisitForNavigation(result.visitId);
+        this.isPreparingVisit = false;
+        return;
+      }
     } catch (err) {
       this.error = err instanceof Error ? err.message : 'Erro ao processar convite';
     } finally {
       this.isLoading = false;
+      this.isPreparingVisit = false;
     }
+  }
+
+  private async prepareVisitForNavigation(visitId: string): Promise<boolean> {
+    try {
+      await syncNow();
+      await pullRemoteVisitMembershipsAndVisits();
+      await pullRemoteNotes();
+    } catch (error) {
+      console.warn('[InviteAcceptView] Hidratação após aceite falhou (best-effort):', error);
+    }
+
+    return this.waitForVisitReady(visitId);
+  }
+
+  private async waitForVisitReady(visitId: string): Promise<boolean> {
+    const timeoutMs = 6000;
+    const intervalMs = 250;
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() <= deadline) {
+      const [visit, member] = await Promise.all([
+        getVisitById(visitId).catch(() => undefined),
+        getCurrentUserVisitMember(visitId).catch(() => undefined),
+      ]);
+
+      if (visit && member?.status === 'active') {
+        return true;
+      }
+
+      await this.sleep(intervalMs);
+    }
+
+    return false;
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      window.setTimeout(resolve, ms);
+    });
   }
 
   private handleGoBack = () => {
@@ -59,6 +114,10 @@ export class InviteAcceptView extends LitElement {
   };
 
   private getStatusTitle(): string {
+    if ((this.status === 'accepted' || this.status === 'already-member') && !this.isVisitReady) {
+      return 'Convite aceito';
+    }
+
     switch (this.status) {
       case 'accepted':
         return 'Convite aceito!';
@@ -78,6 +137,10 @@ export class InviteAcceptView extends LitElement {
   }
 
   private getStatusMessage(): string {
+    if ((this.status === 'accepted' || this.status === 'already-member') && !this.isVisitReady) {
+      return 'Seu acesso foi confirmado, mas a visita ainda está sincronizando. Tente abrir novamente em alguns segundos.';
+    }
+
     switch (this.status) {
       case 'accepted':
         return 'Você agora faz parte desta visita. Clique para começar.';
@@ -147,6 +210,26 @@ export class InviteAcceptView extends LitElement {
       `;
     }
 
+    if (this.isPreparingVisit) {
+      return html`
+        <app-header title="Aceitar convite"></app-header>
+
+        <main class="container-fluid wf-page-container wf-with-header">
+          <div class="d-flex align-items-center justify-content-center" style="min-height: 50vh;">
+            <div class="card border-0 shadow-sm text-center w-100" style="max-width: 420px;">
+              <div class="card-body p-4">
+                <div class="spinner-border text-primary" role="status">
+                  <span class="visually-hidden">Sincronizando...</span>
+                </div>
+                <h5 class="mt-3 mb-2">Preparando sua visita</h5>
+                <p class="text-secondary mb-0">Sincronizando seus dados. Isso pode levar alguns segundos.</p>
+              </div>
+            </div>
+          </div>
+        </main>
+      `;
+    }
+
     return html`
       <app-header title="Aceitar convite"></app-header>
 
@@ -159,7 +242,7 @@ export class InviteAcceptView extends LitElement {
           <div class="card border-0 shadow-sm text-center w-100" style="max-width: 420px;">
             <div class="card-body p-4">
               ${this.renderIcon(this.getStatusIcon(), `mx-auto mb-3 ${iconClass}`)}
-              
+
               <h5 class="mb-2">${this.getStatusTitle()}</h5>
               <p class="text-secondary mb-4">${this.getStatusMessage()}</p>
 
@@ -168,9 +251,9 @@ export class InviteAcceptView extends LitElement {
                   class="btn btn-outline-secondary"
                   @click=${this.handleGoBack}
                 >
-                  Voltar
+                  ${isSuccess && !this.isVisitReady ? 'Ir para minhas visitas' : 'Voltar'}
                 </button>
-                ${isSuccess
+                ${isSuccess && this.isVisitReady
                   ? html`
                       <button
                         class="btn btn-primary"

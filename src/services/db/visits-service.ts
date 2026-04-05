@@ -308,11 +308,16 @@ export async function ensureVisitIsGroup(visitId: string): Promise<Visit> {
 }
 
 /**
- * Usuário não-owner sai de uma visita em grupo
+ * Usuário não-owner sai de uma visita em grupo via endpoint remoto autorizado.
  */
 export async function leaveVisit(visitId: string): Promise<void> {
-  const userId = requireUserId();
-  const member = await getVisitMember(visitId, userId);
+  const { user } = getAuthState();
+
+  if (!user) {
+    throw new Error('Usuário não autenticado.');
+  }
+
+  const member = await getVisitMember(visitId, user.uid);
 
   if (!member || member.status !== 'active') {
     throw new Error('Membership ativo não encontrado');
@@ -322,29 +327,61 @@ export async function leaveVisit(visitId: string): Promise<void> {
     throw new Error('Owner não pode sair da visita neste fluxo');
   }
 
-  const now = new Date();
-  const removedMember: VisitMember = {
-    ...member,
-    status: 'removed',
-    removedAt: now,
-    updatedAt: now,
-  };
+  const idToken = await user.getIdToken();
+  const response = await fetch('/api/visits/leave', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${idToken}`,
+    },
+    body: JSON.stringify({ visitId }),
+  });
 
-  await db.transaction('rw', [db.visitMembers, db.visits, db.notes, db.syncQueue], async () => {
-    await removePendingSyncItemsForVisitInTransaction(userId, visitId);
+  if (response.status === 401) {
+    throw new Error('Usuário não autenticado.');
+  }
 
-    await db.visitMembers.put(removedMember);
-    await queueVisitMemberForSyncInTransaction('update', removedMember);
+  if (response.status === 400) {
+    throw new Error('Requisição inválida.');
+  }
 
-    const visitNotes = await db.notes.where('visitId').equals(visitId).toArray();
-    if (visitNotes.length > 0) {
-      await db.notes.bulkDelete(visitNotes.map((note) => note.id));
-    }
+  if (response.status === 403) {
+    throw new Error('Acesso negado.');
+  }
 
+  if (response.status === 404) {
+    throw new Error('Membership não encontrado.');
+  }
+
+  if (response.status >= 500) {
+    throw new Error('Erro no servidor.');
+  }
+
+  const result = await response.json() as unknown;
+
+  if (!result || typeof result !== 'object') {
+    throw new Error('Resposta inválida do servidor.');
+  }
+
+  const resultObj = result as Partial<LeaveVisitEndpointResponse>;
+  if (resultObj.status !== 'left' || resultObj.visitId !== visitId) {
+    throw new Error('Resposta inválida do servidor.');
+  }
+
+  await db.transaction('rw', [db.visits, db.visitMembers, db.notes, db.visitInvites, db.syncQueue], async () => {
+    await removePendingSyncItemsForVisitInTransaction(user.uid, visitId);
+    await db.notes.where('visitId').equals(visitId).delete();
+    await db.visitMembers.where('visitId').equals(visitId).delete();
+    await db.visitInvites.where('visitId').equals(visitId).delete();
     await db.visits.delete(visitId);
   });
 
   triggerImmediateSync();
+}
+
+interface LeaveVisitEndpointResponse {
+  status: 'left';
+  visitId: string;
 }
 
 interface DeleteVisitEndpointResponse {

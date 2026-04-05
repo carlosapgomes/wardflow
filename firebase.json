@@ -18,6 +18,13 @@
         }
       },
       {
+        "source": "/api/visits/leave",
+        "function": {
+          "functionId": "leaveVisitEndpointV2",
+          "region": "southamerica-east1"
+        }
+      },
+      {
         "source": "/api/visits/delete",
         "function": {
           "functionId": "deleteVisitEndpointV2",

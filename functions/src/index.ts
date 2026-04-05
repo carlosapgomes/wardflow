@@ -43,6 +43,15 @@ interface AcceptInviteResponse {
   visitId?: string;
 }
 
+interface LeaveVisitRequest {
+  visitId: string;
+}
+
+interface LeaveVisitResponse {
+  status: 'left';
+  visitId: string;
+}
+
 interface DeleteVisitRequest {
   visitId: string;
 }
@@ -315,6 +324,83 @@ export const acceptInviteEndpointV2 = onRequest({ region: 'southamerica-east1' }
     res.status(200).json(response);
   } catch (error) {
     console.error('Error accepting invite:', error);
+    setCors(res);
+    res.status(500).json({ error: 'internal-error' });
+  }
+});
+
+/**
+ * Endpoint autenticado para sair de uma visita colaborativa
+ * Rota: POST /api/visits/leave
+ */
+export const leaveVisitEndpointV2 = onRequest({ region: 'southamerica-east1' }, async (req: Request, res: Response) => {
+  if (req.method === 'OPTIONS') {
+    setCors(res);
+    res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    res.status(204).send();
+    return;
+  }
+
+  if (req.method !== 'POST') {
+    setCors(res);
+    res.status(405).json({ error: 'method-not-allowed' });
+    return;
+  }
+
+  const decodedToken = await authenticateRequest(req, res);
+  if (!decodedToken) {
+    return;
+  }
+
+  const body = req.body as LeaveVisitRequest | undefined;
+  if (!body || typeof body.visitId !== 'string' || body.visitId.trim() === '') {
+    setCors(res);
+    res.status(400).json({ error: 'invalid-request' });
+    return;
+  }
+
+  const visitId = body.visitId.trim();
+
+  try {
+    const memberRef = firestore.collection('visits').doc(visitId).collection('members').doc(decodedToken.uid);
+    const memberSnap = await memberRef.get();
+
+    if (!memberSnap.exists) {
+      setCors(res);
+      res.status(404).json({ error: 'membership-not-found' });
+      return;
+    }
+
+    const memberData = memberSnap.data();
+    if (!memberData || memberData['status'] !== 'active' || memberData['userId'] !== decodedToken.uid) {
+      setCors(res);
+      res.status(403).json({ error: 'forbidden' });
+      return;
+    }
+
+    if (memberData['role'] === 'owner') {
+      setCors(res);
+      res.status(403).json({ error: 'forbidden' });
+      return;
+    }
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    await memberRef.update({
+      status: 'removed',
+      removedAt: now,
+      updatedAt: now,
+    });
+
+    const response: LeaveVisitResponse = {
+      status: 'left',
+      visitId,
+    };
+
+    setCors(res);
+    res.status(200).json(response);
+  } catch (error) {
+    console.error('Error leaving visit:', error);
     setCors(res);
     res.status(500).json({ error: 'internal-error' });
   }
