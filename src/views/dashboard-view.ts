@@ -358,7 +358,7 @@ export class DashboardView extends LitElement {
   private renderAccessRemoved() {
     return html`
       <app-header title="Acesso removido"></app-header>
-      <main class="container-fluid wf-page-container wf-with-header-sync wf-sheet-safe pb-4">
+      <main class="container-fluid wf-page-container wf-with-header wf-sheet-safe pb-4">
         <div class="d-flex align-items-center justify-content-center" style="min-height: 55vh;">
           <div class="card border-0 shadow-sm text-center w-100" style="max-width: 420px;">
             <div class="card-body p-4">
@@ -380,7 +380,7 @@ export class DashboardView extends LitElement {
   private renderAccessDenied() {
     return html`
       <app-header title="Acesso negado"></app-header>
-      <main class="container-fluid wf-page-container wf-with-header-sync wf-sheet-safe pb-4">
+      <main class="container-fluid wf-page-container wf-with-header wf-sheet-safe pb-4">
         <div class="d-flex align-items-center justify-content-center" style="min-height: 55vh;">
           <div class="card border-0 shadow-sm text-center w-100" style="max-width: 420px;">
             <div class="card-body p-4">
@@ -444,7 +444,7 @@ export class DashboardView extends LitElement {
       <app-header title=${title} ?showBack=${true} @back-click=${this.handleBackClick}></app-header>
       <sync-status-bar></sync-status-bar>
 
-      <main class="container-fluid wf-page-container wf-with-header-sync wf-sheet-safe pb-4">
+      <main class="container-fluid wf-page-container wf-with-header wf-sheet-safe pb-4">
         ${this.canDeletePrivateVisit()
           ? html`
               <div class="mb-3 d-flex justify-content-end">
@@ -476,7 +476,7 @@ export class DashboardView extends LitElement {
     return html`
       <app-header title="VisitaMed"></app-header>
 
-      <main class="container-fluid wf-page-container wf-with-header-sync pb-4">
+      <main class="container-fluid wf-page-container wf-with-header pb-4">
         <div class="card border-0 shadow-sm mb-3">
           <div class="card-header bg-body fw-semibold">Pré-visualizar mensagem</div>
           <div class="card-body">
