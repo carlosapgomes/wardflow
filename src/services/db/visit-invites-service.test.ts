@@ -108,6 +108,7 @@ import {
   listActiveVisitInvites,
   revokeVisitInvite,
   acceptVisitInviteByToken,
+  buildVisitInviteLink,
 } from './visit-invites-service';
 import { getFirebaseFirestore } from '@/services/auth/firebase';
 import { db } from './dexie-db';
@@ -243,6 +244,18 @@ describe('visit-invites-service - revokeVisitInvite (Firestore remoto)', () => {
     vi.mocked(getFirebaseFirestore).mockReturnValueOnce(undefined as never);
 
     await expect(revokeVisitInvite('invite-1', 'visit-1')).rejects.toThrow('Firestore não configurado');
+  });
+});
+
+describe('visit-invites-service - buildVisitInviteLink', () => {
+  it('retorna URL absoluta esperada com origin explícito', () => {
+    const link = buildVisitInviteLink('token-123', 'https://wardflow.app');
+    expect(link).toBe('https://wardflow.app/convite/token-123');
+  });
+
+  it('normaliza origin com barra final', () => {
+    const link = buildVisitInviteLink('abc', 'https://wardflow.app/');
+    expect(link).toBe('https://wardflow.app/convite/abc');
   });
 });
 

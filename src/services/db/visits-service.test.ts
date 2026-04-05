@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createOwnerVisitMember } from './visit-members-service';
-import { duplicateVisitAsPrivate, deletePrivateVisit, leaveVisit, deleteGroupVisitAsOwner } from './visits-service';
+import { duplicateVisitAsPrivate, deletePrivateVisit, leaveVisit, deleteGroupVisitAsOwner, ensureVisitIsGroup } from './visits-service';
 import type { Visit } from '@/models/visit';
 import type { Note } from '@/models/note';
 import type { VisitMember } from '@/models/visit-member';
@@ -448,6 +448,110 @@ describe('deletePrivateVisit', () => {
     } as Visit);
 
     await expect(deletePrivateVisit(mockVisitId)).rejects.toThrow('Apenas visitas privadas podem ser excluídas neste fluxo');
+  });
+});
+
+describe('ensureVisitIsGroup', () => {
+  const mockUserId = 'user-owner';
+  const mockVisitId = 'visit-private-1';
+
+  const mockDb = db as unknown as {
+    visits: { get: ReturnType<typeof vi.fn>; put: ReturnType<typeof vi.fn> };
+    visitMembers: { get: ReturnType<typeof vi.fn> };
+    syncQueue: { add: ReturnType<typeof vi.fn> };
+  };
+  const mockGetAuthStateFn = getAuthState as unknown as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetAuthStateFn.mockReturnValue({ user: { uid: mockUserId } });
+  });
+
+  it('converte visita private para group e enfileira visit:update', async () => {
+    mockDb.visits.get.mockResolvedValue({
+      id: mockVisitId,
+      userId: mockUserId,
+      name: 'Visita privada',
+      date: '2026-04-05',
+      mode: 'private',
+      createdAt: new Date(),
+    } as Visit);
+
+    mockDb.visitMembers.get.mockResolvedValue({
+      id: `${mockVisitId}:${mockUserId}`,
+      visitId: mockVisitId,
+      userId: mockUserId,
+      role: 'owner',
+      status: 'active',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as VisitMember);
+
+    const result = await ensureVisitIsGroup(mockVisitId);
+
+    expect(result.mode).toBe('group');
+    expect(result.updatedAt).toBeInstanceOf(Date);
+    expect(mockDb.visits.put).toHaveBeenCalledWith(expect.objectContaining({ mode: 'group' }));
+    expect(mockDb.syncQueue.add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: 'update',
+        entityType: 'visit',
+        entityId: mockVisitId,
+      })
+    );
+  });
+
+  it('não altera nem enfileira update quando visita já é group', async () => {
+    const groupVisit: Visit = {
+      id: mockVisitId,
+      userId: mockUserId,
+      name: 'Visita grupo',
+      date: '2026-04-05',
+      mode: 'group',
+      createdAt: new Date(),
+    };
+
+    mockDb.visits.get.mockResolvedValue(groupVisit);
+    mockDb.visitMembers.get.mockResolvedValue({
+      id: `${mockVisitId}:${mockUserId}`,
+      visitId: mockVisitId,
+      userId: mockUserId,
+      role: 'owner',
+      status: 'active',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as VisitMember);
+
+    const result = await ensureVisitIsGroup(mockVisitId);
+
+    expect(result).toBe(groupVisit);
+    expect(mockDb.visits.put).not.toHaveBeenCalled();
+    expect(mockDb.syncQueue.add).not.toHaveBeenCalled();
+  });
+
+  it('falha para não-owner', async () => {
+    mockDb.visits.get.mockResolvedValue({
+      id: mockVisitId,
+      userId: mockUserId,
+      name: 'Visita privada',
+      date: '2026-04-05',
+      mode: 'private',
+      createdAt: new Date(),
+    } as Visit);
+
+    mockDb.visitMembers.get.mockResolvedValue({
+      id: `${mockVisitId}:${mockUserId}`,
+      visitId: mockVisitId,
+      userId: mockUserId,
+      role: 'editor',
+      status: 'active',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as VisitMember);
+
+    await expect(ensureVisitIsGroup(mockVisitId)).rejects.toThrow(
+      'Acesso negado: somente owner ativo pode convidar pessoas'
+    );
   });
 });
 

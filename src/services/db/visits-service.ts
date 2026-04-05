@@ -268,6 +268,46 @@ export async function deletePrivateVisit(visitId: string): Promise<void> {
 }
 
 /**
+ * Garante que uma visita esteja em modo colaborativo (group).
+ * Se ainda for private, promove para group localmente e enfileira visit:update.
+ */
+export async function ensureVisitIsGroup(visitId: string): Promise<Visit> {
+  const userId = requireUserId();
+  const visit = await db.visits.get(visitId);
+
+  if (!visit) {
+    throw new Error('Visita não encontrada');
+  }
+
+  validateOwnership(visit, userId);
+
+  const ownerMember = await getVisitMember(visitId, userId);
+  if (!ownerMember || ownerMember.role !== 'owner' || ownerMember.status !== 'active') {
+    throw new Error('Acesso negado: somente owner ativo pode convidar pessoas');
+  }
+
+  if (visit.mode === 'group') {
+    return visit;
+  }
+
+  const now = new Date();
+  const updatedVisit: Visit = {
+    ...visit,
+    mode: 'group',
+    updatedAt: now,
+  };
+
+  await db.transaction('rw', [db.visits, db.syncQueue], async () => {
+    await db.visits.put(updatedVisit);
+    await queueVisitForSyncInTransaction('update', updatedVisit);
+  });
+
+  triggerImmediateSync();
+
+  return updatedVisit;
+}
+
+/**
  * Usuário não-owner sai de uma visita em grupo
  */
 export async function leaveVisit(visitId: string): Promise<void> {

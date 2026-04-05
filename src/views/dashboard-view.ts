@@ -9,7 +9,8 @@ import { liveQuery, type Subscription } from 'dexie';
 import { navigate, getCurrentRoute } from '@/router/router';
 import { getAllNotes, deleteNotes } from '@/services/db/notes-service';
 import { getCurrentUserVisitMember } from '@/services/db/visit-members-service';
-import { getVisitById, deletePrivateVisit, leaveVisit, deleteGroupVisitAsOwner } from '@/services/db/visits-service';
+import { getVisitById, deletePrivateVisit, leaveVisit, deleteGroupVisitAsOwner, ensureVisitIsGroup } from '@/services/db/visits-service';
+import { createVisitInviteForVisit, buildVisitInviteLink } from '@/services/db/visit-invites-service';
 import { canEditNote, canDeleteNote, getVisitAccessState, type VisitAccessState } from '@/services/auth/visit-permissions';
 import { getDashboardGroupActions } from '@/services/auth/dashboard-actions-policy';
 import { groupNotesByDateAndTag } from '@/utils/group-notes-by-date-and-tag';
@@ -17,6 +18,7 @@ import { generateMessage, copyToClipboard, type ExportScope } from '@/services/e
 import type { Note } from '@/models/note';
 import type { Visit } from '@/models/visit';
 import type { VisitMember } from '@/models/visit-member';
+import type { InviteRole } from '@/models/visit-invite';
 import type { TagGroupData } from '@/components/groups/date-group';
 import type { DashboardAction } from '@/services/auth/dashboard-actions-policy';
 import '../components/base/fab-button';
@@ -52,6 +54,10 @@ export class DashboardView extends LitElement {
   @state() private isDeleteConfirmOpen = false;
   @state() private isVisitDeleteConfirmOpen = false;
   @state() private isLeaveVisitConfirmOpen = false;
+  @state() private isInviteModalOpen = false;
+  @state() private inviteRole: InviteRole = 'editor';
+  @state() private inviteLink = '';
+  @state() private isGeneratingInvite = false;
 
   private notesSubscription: Subscription | null = null;
 
@@ -314,6 +320,89 @@ export class DashboardView extends LitElement {
       && this.accessState === 'active';
   }
 
+  private canInvitePeople(): boolean {
+    return Boolean(this.currentVisit && this.member?.role === 'owner' && this.accessState === 'active');
+  }
+
+  private handleInvitePeopleClick = (): void => {
+    this.inviteRole = 'editor';
+    this.inviteLink = '';
+    this.isGeneratingInvite = false;
+    this.isInviteModalOpen = true;
+  };
+
+  private handleInviteModalClose = (): void => {
+    this.isInviteModalOpen = false;
+  };
+
+  private handleInviteRoleChange = (event: Event): void => {
+    const select = event.target as HTMLSelectElement;
+    if (select.value === 'editor' || select.value === 'viewer') {
+      this.inviteRole = select.value;
+    }
+  };
+
+  private handleGenerateInviteLink = async (): Promise<void> => {
+    if (!this.visitId || this.isGeneratingInvite) {
+      return;
+    }
+
+    this.isGeneratingInvite = true;
+
+    try {
+      this.currentVisit = await ensureVisitIsGroup(this.visitId);
+      const invite = await createVisitInviteForVisit({
+        visitId: this.visitId,
+        role: this.inviteRole,
+      });
+
+      this.inviteLink = buildVisitInviteLink(invite.token);
+      this.showTemporaryToast('Link de convite gerado');
+    } catch (error) {
+      console.error('Erro ao gerar link de convite:', error);
+      this.showTemporaryToast('Erro ao gerar link de convite');
+    } finally {
+      this.isGeneratingInvite = false;
+    }
+  };
+
+  private handleCopyInviteLink = async (): Promise<void> => {
+    if (!this.inviteLink) {
+      return;
+    }
+
+    const success = await copyToClipboard(this.inviteLink);
+    if (success) {
+      this.showTemporaryToast('Link copiado');
+    }
+  };
+
+  private handleShareInviteLink = async (): Promise<void> => {
+    if (!this.inviteLink) {
+      return;
+    }
+
+    const canShare = 'share' in navigator && typeof navigator.share === 'function';
+
+    if (canShare) {
+      try {
+        await navigator.share({
+          title: 'Convite para visita',
+          text: this.inviteLink,
+          url: this.inviteLink,
+        });
+        return;
+      } catch {
+        // Fallback para clipboard
+      }
+    }
+
+    const success = await copyToClipboard(this.inviteLink);
+    if (success) {
+      this.showTemporaryToast('Link copiado');
+    }
+  };
+
   private handleVisitDeleteClick = (): void => {
     this.isVisitDeleteConfirmOpen = true;
   };
@@ -486,9 +575,16 @@ export class DashboardView extends LitElement {
       <sync-status-bar></sync-status-bar>
 
       <main class="container-fluid wf-page-container wf-with-header-sync wf-sheet-safe pb-4">
-        ${this.canDeletePrivateVisit() || this.canDeleteGroupVisitForAll() || this.canLeaveGroupVisit()
+        ${this.canInvitePeople() || this.canDeletePrivateVisit() || this.canDeleteGroupVisitForAll() || this.canLeaveGroupVisit()
           ? html`
               <div class="mb-3 d-flex justify-content-end gap-2 flex-wrap">
+                ${this.canInvitePeople()
+                  ? html`
+                      <button type="button" class="btn btn-outline-primary" @click=${this.handleInvitePeopleClick}>
+                        Convidar pessoas
+                      </button>
+                    `
+                  : ''}
                 ${this.canDeletePrivateVisit()
                   ? html`
                       <button type="button" class="btn btn-outline-danger" @click=${this.handleVisitDeleteClick}>
@@ -594,6 +690,7 @@ export class DashboardView extends LitElement {
       ${this.renderDeleteConfirm()}
       ${this.renderVisitDeleteConfirm()}
       ${this.renderLeaveVisitConfirm()}
+      ${this.renderInviteModal()}
     `;
   }
 
@@ -690,6 +787,71 @@ export class DashboardView extends LitElement {
     `;
   }
 
+  private renderInviteModal() {
+    if (!this.isInviteModalOpen) return null;
+
+    return html`
+      <div class="modal-backdrop fade show"></div>
+      <div class="modal d-block" tabindex="-1" @click=${this.handleInviteModalClose}>
+        <div class="modal-dialog modal-dialog-centered" @click=${(e: Event) => { e.stopPropagation(); }}>
+          <div class="modal-content border-0 shadow">
+            <div class="modal-body p-4 d-flex flex-column gap-3">
+              <div>
+                <h3 class="h5 mb-1">Convidar pessoas</h3>
+                <p class="text-secondary mb-0">Escolha o nível de acesso para o convite.</p>
+              </div>
+
+              <div>
+                <label for="invite-role-select" class="form-label">Nível de acesso</label>
+                <select
+                  id="invite-role-select"
+                  class="form-select"
+                  .value=${this.inviteRole}
+                  @change=${this.handleInviteRoleChange}
+                >
+                  <option value="editor">Editor</option>
+                  <option value="viewer">Leitor</option>
+                </select>
+                <div class="small text-secondary mt-2">Editor: pode criar, editar e excluir notas.</div>
+                <div class="small text-secondary">Leitor: pode apenas visualizar e exportar.</div>
+              </div>
+
+              <div class="d-grid gap-2 d-sm-flex justify-content-end">
+                <button type="button" class="btn btn-outline-secondary" @click=${this.handleInviteModalClose}>
+                  Fechar
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  ?disabled=${this.isGeneratingInvite}
+                  @click=${this.handleGenerateInviteLink}
+                >
+                  ${this.isGeneratingInvite ? 'Gerando...' : 'Gerar link'}
+                </button>
+              </div>
+
+              ${this.inviteLink
+                ? html`
+                    <div class="border-top pt-3 d-flex flex-column gap-2">
+                      <label class="form-label mb-0" for="invite-link-input">Link de convite</label>
+                      <input id="invite-link-input" class="form-control" .value=${this.inviteLink} readonly />
+                      <div class="d-grid gap-2 d-sm-flex justify-content-end">
+                        <button type="button" class="btn btn-outline-secondary" @click=${this.handleCopyInviteLink}>
+                          Copiar link
+                        </button>
+                        <button type="button" class="btn btn-primary" @click=${this.handleShareInviteLink}>
+                          Compartilhar link
+                        </button>
+                      </div>
+                    </div>
+                  `
+                : ''}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
 }
 
 declare global {

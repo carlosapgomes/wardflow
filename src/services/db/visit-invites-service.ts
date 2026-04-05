@@ -127,6 +127,21 @@ export interface CreateVisitInviteInputService {
 }
 
 /**
+ * Monta link absoluto de convite para rota /convite/:token.
+ * Usa window.location.origin no app real e permite origin explícito para testes.
+ */
+export function buildVisitInviteLink(token: string, origin?: string): string {
+  const resolvedOrigin = (origin ?? (typeof window !== 'undefined' ? window.location.origin : '')).trim();
+  const normalizedOrigin = resolvedOrigin.replace(/\/+$/, '');
+
+  if (!normalizedOrigin) {
+    return `/convite/${token}`;
+  }
+
+  return `${normalizedOrigin}/convite/${token}`;
+}
+
+/**
  * Valida permissão de gerenciar convites (fail-fast)
  * Verifica membership local + canManageInvites
  */
