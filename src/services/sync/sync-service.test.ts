@@ -34,7 +34,9 @@ vi.mock('firebase/firestore', () => ({
 // Mock do Dexie para visitMembers e visits
 vi.mock('@/services/db/dexie-db', () => ({
   db: {
-    transaction: vi.fn(),
+    transaction: vi.fn(async (_mode: unknown, _tables: unknown[], callback: () => Promise<void>) => {
+      await callback();
+    }),
     notes: {
       where: vi.fn(() => ({
         equals: vi.fn(() => ({
@@ -44,6 +46,7 @@ vi.mock('@/services/db/dexie-db', () => ({
       })),
       get: vi.fn(),
       update: vi.fn(),
+      delete: vi.fn(),
       bulkPut: vi.fn(),
       bulkDelete: vi.fn(),
     },
@@ -54,9 +57,9 @@ vi.mock('@/services/db/dexie-db', () => ({
         and: vi.fn().mockReturnThis(),
         toArray: vi.fn().mockResolvedValue([]),
         count: vi.fn().mockResolvedValue(0),
-        delete: vi.fn().mockResolvedValue(undefined),
       })),
       add: vi.fn(),
+      get: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
       count: vi.fn().mockResolvedValue(0),
@@ -80,6 +83,13 @@ vi.mock('@/services/db/dexie-db', () => ({
       })),
       bulkPut: vi.fn().mockResolvedValue(undefined),
     },
+    visitInvites: {
+      where: vi.fn(() => ({
+        equals: vi.fn(() => ({
+          delete: vi.fn().mockResolvedValue(0),
+        })),
+      })),
+    },
   },
 }));
 
@@ -89,7 +99,7 @@ import { type SyncQueueItem } from '@/models/sync-queue';
 import { getAuthState } from '@/services/auth/auth-service';
 import { getFirebaseFirestore } from '@/services/auth/firebase';
 import { db } from '@/services/db/dexie-db';
-import { collectionGroup, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collectionGroup, query, where, getDocs, doc, getDoc, setDoc } from 'firebase/firestore';
 
 // Removido: FirestoreWardStatData (tags-first)
 
@@ -588,6 +598,11 @@ describe('sync-service - isPermissionDeniedError', () => {
     expect(result).toBe(true);
   });
 
+  it('deve retornar true para code com permission-denied', () => {
+    const result = syncService.isPermissionDeniedError({ code: 'firestore/permission-denied' });
+    expect(result).toBe(true);
+  });
+
   it('deve retornar false para erro sem permission denied', () => {
     const error = new Error('Document not found');
     const result = syncService.isPermissionDeniedError(error);
@@ -602,6 +617,22 @@ describe('sync-service - isPermissionDeniedError', () => {
   it('deve retornar false para null/undefined', () => {
     expect(syncService.isPermissionDeniedError(null)).toBe(false);
     expect(syncService.isPermissionDeniedError(undefined)).toBe(false);
+  });
+});
+
+describe('sync-service - isNotFoundError / isVisitMissingOrInaccessibleError', () => {
+  it('detecta not-found em message', () => {
+    expect(syncService.isNotFoundError(new Error('Document not-found'))).toBe(true);
+  });
+
+  it('detecta not-found em code', () => {
+    expect(syncService.isNotFoundError({ code: 'firestore/not-found' })).toBe(true);
+  });
+
+  it('detecta erro compatível com visita removida remotamente', () => {
+    expect(syncService.isVisitMissingOrInaccessibleError(new Error('permission-denied'))).toBe(true);
+    expect(syncService.isVisitMissingOrInaccessibleError(new Error('not-found'))).toBe(true);
+    expect(syncService.isVisitMissingOrInaccessibleError(new Error('invalid-argument'))).toBe(false);
   });
 });
 
@@ -703,9 +734,12 @@ describe('sync-service - pullRemoteVisitMembershipsAndVisits', () => {
   const mockedGetDoc = vi.mocked(getDoc);
 
   const mockedDb = db as unknown as {
+    transaction: ReturnType<typeof vi.fn>;
     visitMembers: { bulkPut: ReturnType<typeof vi.fn>; where: ReturnType<typeof vi.fn> };
     visits: { put: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
     notes: { where: ReturnType<typeof vi.fn> };
+    visitInvites: { where: ReturnType<typeof vi.fn> };
+    syncQueue: { where: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
   };
 
   const setupDefaults = () => {
@@ -897,6 +931,312 @@ describe('sync-service - pullRemoteVisitMembershipsAndVisits', () => {
     expect(mockedDb.visitMembers.bulkPut).toHaveBeenCalledTimes(1);
     expect(mockedDb.visits.put).toHaveBeenCalledTimes(1);
     expect(mockedDb.visits.put).toHaveBeenCalledWith(expect.objectContaining({ id: 'visit-2' }));
+  });
+
+  it('remove dados locais completos quando membership remoto está removed', async () => {
+    setupDefaults();
+
+    const notesDeleteByVisitId = vi.fn((visitId: string) => Promise.resolve(visitId === 'visit-removed' ? 1 : 0));
+    const membersDeleteByVisitId = vi.fn((visitId: string) => Promise.resolve(visitId === 'visit-removed' ? 1 : 0));
+    const invitesDeleteByVisitId = vi.fn((visitId: string) => Promise.resolve(visitId === 'visit-removed' ? 1 : 0));
+
+    mockedDb.notes.where.mockImplementationOnce((index: string) => {
+      if (index !== 'visitId') {
+        return { equals: vi.fn() };
+      }
+
+      return {
+        equals: vi.fn((visitId: string) => ({
+          delete: () => notesDeleteByVisitId(visitId),
+        })),
+      };
+    });
+
+    mockedDb.visitMembers.where.mockImplementation((index: string) => {
+      if (index === 'userId') {
+        return {
+          equals: vi.fn(() => ({
+            toArray: vi.fn().mockResolvedValue([
+              {
+                id: 'visit-removed:user-123',
+                visitId: 'visit-removed',
+                userId: 'user-123',
+                role: 'viewer',
+                status: 'active',
+                createdAt: new Date(),
+                updatedAt: new Date(),
+              },
+            ]),
+          })),
+        };
+      }
+
+      if (index === 'visitId') {
+        return {
+          equals: vi.fn((visitId: string) => ({
+            delete: () => membersDeleteByVisitId(visitId),
+          })),
+        };
+      }
+
+      return {
+        equals: vi.fn(() => ({
+          toArray: vi.fn().mockResolvedValue([]),
+          delete: vi.fn().mockResolvedValue(0),
+        })),
+      };
+    });
+
+    mockedDb.visitInvites.where.mockImplementationOnce((index: string) => {
+      if (index !== 'visitId') {
+        return { equals: vi.fn() };
+      }
+
+      return {
+        equals: vi.fn((visitId: string) => ({
+          delete: () => invitesDeleteByVisitId(visitId),
+        })),
+      };
+    });
+
+    mockedDb.syncQueue.where.mockImplementationOnce(() => ({
+      equals: vi.fn(() => ({
+        toArray: vi.fn().mockResolvedValue([]),
+      })),
+    }));
+
+    mockedGetDocs.mockResolvedValue({
+      empty: false,
+      docs: [
+        {
+          id: 'user-123',
+          data: () => ({
+            id: 'visit-removed:user-123',
+            visitId: 'visit-removed',
+            userId: 'user-123',
+            role: 'viewer',
+            status: 'removed',
+            createdAt: '2026-04-01T10:00:00.000Z',
+          }),
+        },
+      ],
+    } as Awaited<ReturnType<typeof getDocs>>);
+
+    await syncService.pullRemoteVisitMembershipsAndVisits();
+
+    expect(notesDeleteByVisitId).toHaveBeenCalledWith('visit-removed');
+    expect(membersDeleteByVisitId).toHaveBeenCalledWith('visit-removed');
+    expect(invitesDeleteByVisitId).toHaveBeenCalledWith('visit-removed');
+    expect(mockedDb.visits.delete).toHaveBeenCalledWith('visit-removed');
+  });
+});
+
+describe('sync-service - removeVisitDataLocallyByVisitId', () => {
+  it('limpa visita, notas, members, invites e itens da fila ligados ao visitId', async () => {
+    const mockedDb = db as unknown as {
+      transaction: ReturnType<typeof vi.fn>;
+      notes: { where: ReturnType<typeof vi.fn> };
+      visitMembers: { where: ReturnType<typeof vi.fn> };
+      visitInvites: { where: ReturnType<typeof vi.fn> };
+      visits: { delete: ReturnType<typeof vi.fn> };
+      syncQueue: { where: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
+    };
+
+    const notesDeleteByVisitId = vi.fn((visitId: string) => Promise.resolve(visitId === 'visit-clean' ? 2 : 0));
+    const membersDeleteByVisitId = vi.fn((visitId: string) => Promise.resolve(visitId === 'visit-clean' ? 1 : 0));
+    const invitesDeleteByVisitId = vi.fn((visitId: string) => Promise.resolve(visitId === 'visit-clean' ? 1 : 0));
+
+    mockedDb.notes.where.mockImplementationOnce(() => ({
+      equals: vi.fn((visitId: string) => ({
+        delete: () => notesDeleteByVisitId(visitId),
+      })),
+    }));
+
+    mockedDb.visitMembers.where.mockImplementationOnce(() => ({
+      equals: vi.fn((visitId: string) => ({
+        delete: () => membersDeleteByVisitId(visitId),
+      })),
+    }));
+
+    mockedDb.visitInvites.where.mockImplementationOnce(() => ({
+      equals: vi.fn((visitId: string) => ({
+        delete: () => invitesDeleteByVisitId(visitId),
+      })),
+    }));
+
+    mockedDb.syncQueue.where.mockImplementationOnce(() => ({
+      equals: vi.fn(() => ({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: 'queue-visit',
+            userId: 'user-123',
+            operation: 'update',
+            entityType: 'visit',
+            entityId: 'visit-clean',
+            payload: '{}',
+            createdAt: new Date(),
+            retryCount: 0,
+          },
+          {
+            id: 'queue-member',
+            userId: 'user-123',
+            operation: 'update',
+            entityType: 'visit-member',
+            entityId: 'visit-clean:user-123',
+            payload: '{}',
+            createdAt: new Date(),
+            retryCount: 0,
+          },
+          {
+            id: 'queue-other',
+            userId: 'user-123',
+            operation: 'update',
+            entityType: 'visit',
+            entityId: 'visit-other',
+            payload: '{}',
+            createdAt: new Date(),
+            retryCount: 0,
+          },
+        ]),
+      })),
+    }));
+
+    await syncService.removeVisitDataLocallyByVisitId('visit-clean', 'user-123');
+
+    expect(notesDeleteByVisitId).toHaveBeenCalledWith('visit-clean');
+    expect(membersDeleteByVisitId).toHaveBeenCalledWith('visit-clean');
+    expect(invitesDeleteByVisitId).toHaveBeenCalledWith('visit-clean');
+    expect(mockedDb.syncQueue.delete).toHaveBeenCalledWith('queue-visit');
+    expect(mockedDb.syncQueue.delete).toHaveBeenCalledWith('queue-member');
+    expect(mockedDb.syncQueue.delete).not.toHaveBeenCalledWith('queue-other');
+    expect(mockedDb.visits.delete).toHaveBeenCalledWith('visit-clean');
+  });
+});
+
+describe('sync-service - syncNow hardening para visita removida remotamente', () => {
+  const mockedGetAuthState = vi.mocked(getAuthState);
+  const mockedGetFirebaseFirestore = vi.mocked(getFirebaseFirestore);
+  const mockedSetDoc = vi.mocked(setDoc);
+
+  it('descarta dados locais e fila da visita sem retry inútil quando recebe not-found', async () => {
+    const mockedDb = db as unknown as {
+      transaction: ReturnType<typeof vi.fn>;
+      notes: { where: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> };
+      visits: { delete: ReturnType<typeof vi.fn> };
+      visitMembers: { where: ReturnType<typeof vi.fn> };
+      visitInvites: { where: ReturnType<typeof vi.fn> };
+      syncQueue: {
+        where: ReturnType<typeof vi.fn>;
+        get: ReturnType<typeof vi.fn>;
+        update: ReturnType<typeof vi.fn>;
+        delete: ReturnType<typeof vi.fn>;
+        count: ReturnType<typeof vi.fn>;
+      };
+    };
+
+    mockedGetAuthState.mockReturnValue({
+      user: { uid: 'user-123' } as ReturnType<typeof getAuthState>['user'],
+      loading: false,
+      error: null,
+    });
+    mockedGetFirebaseFirestore.mockReturnValue({} as ReturnType<typeof getFirebaseFirestore>);
+
+    const visitQueueItemA: SyncQueueItem = {
+      id: 'queue-visit-a',
+      userId: 'user-123',
+      operation: 'update',
+      entityType: 'visit',
+      entityId: 'visit-removed',
+      payload: JSON.stringify({
+        id: 'visit-removed',
+        userId: 'user-123',
+        name: 'Visita removida',
+        date: '2026-04-07',
+        mode: 'group',
+        createdAt: '2026-04-07T10:00:00.000Z',
+        expiresAt: '2026-04-15T10:00:00.000Z',
+        updatedAt: '2026-04-07T10:00:00.000Z',
+      }),
+      createdAt: new Date('2026-04-07T10:00:00.000Z'),
+      retryCount: 0,
+    };
+
+    const visitQueueItemB: SyncQueueItem = {
+      id: 'queue-member-b',
+      userId: 'user-123',
+      operation: 'update',
+      entityType: 'visit-member',
+      entityId: 'visit-removed:user-123',
+      payload: JSON.stringify({
+        id: 'visit-removed:user-123',
+        visitId: 'visit-removed',
+        userId: 'user-123',
+        role: 'editor',
+        status: 'active',
+        createdAt: '2026-04-07T10:00:00.000Z',
+        updatedAt: '2026-04-07T10:00:00.000Z',
+      }),
+      createdAt: new Date('2026-04-07T10:01:00.000Z'),
+      retryCount: 0,
+    };
+
+    const queueItems = [visitQueueItemA, visitQueueItemB];
+    const existingQueueIds = new Set(queueItems.map((item) => item.id));
+
+    mockedDb.syncQueue.where.mockImplementation(() => ({
+      equals: vi.fn(() => ({
+        sortBy: vi.fn().mockResolvedValue(queueItems),
+        toArray: vi.fn().mockResolvedValue(
+          queueItems.filter((item) => existingQueueIds.has(item.id))
+        ),
+      })),
+    }));
+
+    mockedDb.syncQueue.get.mockImplementation((itemId: string) => (
+      queueItems.find((item) => item.id === itemId && existingQueueIds.has(item.id))
+    ));
+
+    mockedDb.syncQueue.delete.mockImplementation((itemId: string) => {
+      existingQueueIds.delete(itemId);
+    });
+
+    mockedDb.syncQueue.count.mockResolvedValue(0);
+
+    const notesDeleteByVisitId = vi.fn(() => Promise.resolve(0));
+    const membersDeleteByVisitId = vi.fn((visitId: string) => Promise.resolve(visitId === 'visit-removed' ? 1 : 0));
+    const invitesDeleteByVisitId = vi.fn((visitId: string) => Promise.resolve(visitId === 'visit-removed' ? 1 : 0));
+
+    mockedDb.notes.where.mockImplementation(() => ({
+      equals: vi.fn((visitId: string) => ({
+        delete: () => notesDeleteByVisitId(visitId),
+      })),
+    }));
+
+    mockedDb.visitMembers.where.mockImplementation(() => ({
+      equals: vi.fn((visitId: string) => ({
+        delete: () => membersDeleteByVisitId(visitId),
+      })),
+    }));
+
+    mockedDb.visitInvites.where.mockImplementation(() => ({
+      equals: vi.fn((visitId: string) => ({
+        delete: () => invitesDeleteByVisitId(visitId),
+      })),
+    }));
+
+    mockedSetDoc.mockRejectedValueOnce(new Error('not-found'));
+
+    await syncService.syncNow();
+
+    expect(mockedSetDoc).toHaveBeenCalledTimes(1);
+    expect(notesDeleteByVisitId).toHaveBeenCalledWith('visit-removed');
+    expect(membersDeleteByVisitId).toHaveBeenCalledWith('visit-removed');
+    expect(invitesDeleteByVisitId).toHaveBeenCalledWith('visit-removed');
+    expect(mockedDb.visits.delete).toHaveBeenCalledWith('visit-removed');
+    expect(mockedDb.syncQueue.delete).toHaveBeenCalledWith('queue-visit-a');
+    expect(mockedDb.syncQueue.delete).toHaveBeenCalledWith('queue-member-b');
+    expect(mockedDb.syncQueue.update).not.toHaveBeenCalled();
+    expect(existingQueueIds.size).toBe(0);
   });
 });
 

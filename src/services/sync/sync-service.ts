@@ -314,17 +314,62 @@ export function shouldSkipNoteQueueItemDueToLaterDelete(
 /**
  * Helper puro: detecta se erro é de permissão do Firestore.
  */
-export function isPermissionDeniedError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
+interface ErrorWithCode {
+  code?: unknown;
+  message?: unknown;
+}
+
+function getErrorCode(error: unknown): string {
+  if (!error || typeof error !== 'object') {
+    return '';
   }
 
-  const message = error.message.toLowerCase();
+  const code = (error as ErrorWithCode).code;
+  return typeof code === 'string' ? code.toLowerCase() : '';
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message.toLowerCase();
+  }
+
+  if (!error || typeof error !== 'object') {
+    return '';
+  }
+
+  const message = (error as ErrorWithCode).message;
+  return typeof message === 'string' ? message.toLowerCase() : '';
+}
+
+export function isPermissionDeniedError(error: unknown): boolean {
+  const code = getErrorCode(error);
+  const message = getErrorMessage(error);
+
   return (
+    code.includes('permission-denied') ||
+    code.includes('permission_denied') ||
     message.includes('permission-denied') ||
     message.includes('permission denied') ||
-    message.includes('firestore.permission_denied')
+    message.includes('firestore.permission_denied') ||
+    message.includes('missing or insufficient permissions')
   );
+}
+
+export function isNotFoundError(error: unknown): boolean {
+  const code = getErrorCode(error);
+  const message = getErrorMessage(error);
+
+  return (
+    code.includes('not-found') ||
+    code.includes('not_found') ||
+    message.includes('not-found') ||
+    message.includes('not found') ||
+    message.includes('no document to update')
+  );
+}
+
+export function isVisitMissingOrInaccessibleError(error: unknown): boolean {
+  return isPermissionDeniedError(error) || isNotFoundError(error);
 }
 
 /**
@@ -440,20 +485,26 @@ export async function syncNow(): Promise<void> {
       .sortBy('createdAt');
 
     for (const item of pendingItems) {
+      // Item pode ter sido removido durante tratamento de erro de item anterior
+      const currentItem = await db.syncQueue.get(item.id);
+      if (!currentItem) {
+        continue;
+      }
+
       // Pular item se houver delete posterior na fila (política: delete > update)
-      if (shouldSkipNoteQueueItemDueToLaterDelete(item, pendingItems)) {
-        await db.syncQueue.delete(item.id);
+      if (shouldSkipNoteQueueItemDueToLaterDelete(currentItem, pendingItems)) {
+        await db.syncQueue.delete(currentItem.id);
         console.log(
-          `[VisitaMed] Pulando item ${item.id} (delete posterior encontrado para nota ${item.entityId})`
+          `[VisitaMed] Pulando item ${currentItem.id} (delete posterior encontrado para nota ${currentItem.entityId})`
         );
         continue;
       }
 
       try {
-        await processSyncItem(item, firestore);
-        await db.syncQueue.delete(item.id);
+        await processSyncItem(currentItem, firestore);
+        await db.syncQueue.delete(currentItem.id);
       } catch (error) {
-        await handleSyncError(item, error);
+        await handleSyncError(currentItem, error);
       }
     }
   } catch (error) {
@@ -805,16 +856,28 @@ async function handleSyncError(item: SyncQueueItem, error: unknown): Promise<voi
   const retryCount = item.retryCount + 1;
   const lastAttemptAt = new Date();
 
-  // Tratar permission-denied para notas: descartar nota local + item da fila, sem retry
+  const visitId = getVisitIdFromSyncQueueItem(item);
+  const isVisitScopedEntity =
+    item.entityType === 'visit' ||
+    item.entityType === 'visit-member' ||
+    item.entityType === 'note';
+
+  if (visitId && isVisitScopedEntity && isVisitMissingOrInaccessibleError(error)) {
+    console.warn(
+      `[VisitaMed] Visita ${visitId} indisponível remotamente durante sync (${item.entityType}:${item.operation}). Limpando dados locais relacionados.`
+    );
+
+    await removeVisitDataLocallyByVisitId(visitId, item.userId);
+    return;
+  }
+
+  // Fallback legado para nota sem visitId associada
   if (item.entityType === 'note' && isPermissionDeniedError(error)) {
     console.warn(
       `[VisitaMed] Permission denied para nota ${item.entityId}: descartando dados locais`
     );
 
-    // Remover nota local
     await db.notes.delete(item.entityId);
-
-    // Remover item da fila sem retry
     await db.syncQueue.delete(item.id);
     return;
   }
@@ -1368,12 +1431,16 @@ async function removePendingSyncItemsForVisitInTransaction(userId: string, visit
   }
 }
 
-async function removeVisitDataLocally(visitId: string, userId: string): Promise<void> {
-  await db.transaction('rw', [db.visits, db.notes, db.visitMembers, db.syncQueue], async () => {
+export async function removeVisitDataLocallyByVisitId(
+  visitId: string,
+  userId: string
+): Promise<void> {
+  await db.transaction('rw', [db.visits, db.notes, db.visitMembers, db.visitInvites, db.syncQueue], async () => {
     await removePendingSyncItemsForVisitInTransaction(userId, visitId);
     await db.notes.where('visitId').equals(visitId).delete();
-    await db.visits.delete(visitId);
     await db.visitMembers.where('visitId').equals(visitId).delete();
+    await db.visitInvites.where('visitId').equals(visitId).delete();
+    await db.visits.delete(visitId);
   });
 }
 
@@ -1501,7 +1568,7 @@ export async function pullRemoteVisitMembershipsAndVisits(): Promise<void> {
     }
 
     for (const visitId of visitIdsToClean) {
-      await removeVisitDataLocally(visitId, user.uid);
+      await removeVisitDataLocallyByVisitId(visitId, user.uid);
     }
 
     console.log('[VisitaMed] Pull de memberships e visitas concluído');
