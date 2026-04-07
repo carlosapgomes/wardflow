@@ -75,6 +75,41 @@ async function queueNoteForSyncInTransaction(
   await db.syncQueue.add(item);
 }
 
+function getExpirationDate(baseDate: Date): Date {
+  const expiresAt = new Date(baseDate);
+  expiresAt.setDate(expiresAt.getDate() + NOTE_CONSTANTS.EXPIRATION_DAYS);
+  return expiresAt;
+}
+
+async function syncVisitExpirationInTransaction(visitId: string, expiresAt: Date): Promise<void> {
+  const visit = await db.visits.get(visitId);
+
+  if (!visit) {
+    return;
+  }
+
+  const updatedVisit = {
+    ...visit,
+    expiresAt,
+    updatedAt: new Date(),
+  };
+
+  await db.visits.put(updatedVisit);
+
+  const queueItem = createSyncQueueItem(visit.userId, 'update', 'visit', visit.id, updatedVisit);
+  await db.syncQueue.add(queueItem);
+}
+
+async function expireVisitWhenLastNoteIsRemovedInTransaction(visitId: string): Promise<void> {
+  const remainingNotesCount = await db.notes.where('visitId').equals(visitId).count();
+
+  if (remainingNotesCount > 0) {
+    return;
+  }
+
+  await syncVisitExpirationInTransaction(visitId, new Date());
+}
+
 /**
  * Cria e salva uma nova nota no banco local
  */
@@ -97,10 +132,11 @@ export async function saveNote(input: CreateNoteInput): Promise<Note> {
     syncStatus: 'pending',
   });
 
-  // Transação atômica: nota + sync queue
-  await db.transaction('rw', db.notes, db.syncQueue, async () => {
+  // Transação atômica: nota + visita + sync queue
+  await db.transaction('rw', db.notes, db.visits, db.syncQueue, async () => {
     await db.notes.add(note);
     await queueNoteForSyncInTransaction('create', note);
+    await syncVisitExpirationInTransaction(note.visitId, note.expiresAt);
   });
 
   // Sync imediato se online + autenticado (fire-and-forget)
@@ -175,7 +211,7 @@ export function validateNoteInput(input: CreateNoteInput): boolean {
 export async function deleteNote(noteId: string): Promise<void> {
   const userId = requireUserId();
 
-  await db.transaction('rw', db.notes, db.syncQueue, async () => {
+  await db.transaction('rw', db.notes, db.visits, db.syncQueue, async () => {
     const note = await db.notes.get(noteId);
 
     if (!note) {
@@ -186,6 +222,7 @@ export async function deleteNote(noteId: string): Promise<void> {
 
     await db.notes.delete(noteId);
     await queueNoteForSyncInTransaction('delete', note);
+    await expireVisitWhenLastNoteIsRemovedInTransaction(note.visitId);
   });
 
   // Sync imediato se online + autenticado (fire-and-forget)
@@ -203,7 +240,7 @@ export async function deleteNotes(noteIds: string[]): Promise<void> {
 
   const userId = requireUserId();
 
-  await db.transaction('rw', db.notes, db.syncQueue, async () => {
+  await db.transaction('rw', db.notes, db.visits, db.syncQueue, async () => {
     const notesToDelete = await db.notes.where('id').anyOf(noteIds).toArray();
 
     if (notesToDelete.length === 0) {
@@ -215,10 +252,16 @@ export async function deleteNotes(noteIds: string[]): Promise<void> {
       validateOwnership(note, userId);
     }
 
+    const visitIds = [...new Set(notesToDelete.map((note) => note.visitId))];
+
     await db.notes.bulkDelete(noteIds);
 
     for (const note of notesToDelete) {
       await queueNoteForSyncInTransaction('delete', note);
+    }
+
+    for (const visitId of visitIds) {
+      await expireVisitWhenLastNoteIsRemovedInTransaction(visitId);
     }
   });
 
@@ -237,6 +280,7 @@ export async function updateNote(
 ): Promise<void> {
   const userId = requireUserId();
   const updatedAt = new Date();
+  const expiresAt = getExpirationDate(updatedAt);
 
   // Busca nota existente
   const existingNote = await db.notes.get(noteId);
@@ -258,12 +302,13 @@ export async function updateNote(
     tagsUpdate = { tags: normalizedTags };
   }
 
-  // Transação atômica: nota + sync queue
-  await db.transaction('rw', db.notes, db.syncQueue, async () => {
+  // Transação atômica: nota + visita + sync queue
+  await db.transaction('rw', db.notes, db.visits, db.syncQueue, async () => {
     await db.notes.update(noteId, {
       ...updates,
       ...tagsUpdate,
       updatedAt,
+      expiresAt,
       syncStatus: 'pending',
     });
 
@@ -271,6 +316,7 @@ export async function updateNote(
 
     if (updatedNote) {
       await queueNoteForSyncInTransaction('update', updatedNote);
+      await syncVisitExpirationInTransaction(updatedNote.visitId, updatedNote.expiresAt);
     }
   });
 
@@ -306,24 +352,27 @@ export async function removeTagFromNote(
   // Filtra a tag a remover (por equivalência canônica)
   const remainingTags = currentTags.filter((tag) => normalizeTagValue(tag) !== normalizedTag);
 
-  // Transação atômica: update ou delete + sync queue
-  await db.transaction('rw', db.notes, db.syncQueue, async () => {
+  // Transação atômica: update ou delete + visita + sync queue
+  await db.transaction('rw', db.notes, db.visits, db.syncQueue, async () => {
     if (remainingTags.length === 0) {
       // Última tag removida - exclui a nota
       await db.notes.delete(noteId);
       await queueNoteForSyncInTransaction('delete', existingNote);
+      await expireVisitWhenLastNoteIsRemovedInTransaction(existingNote.visitId);
     } else {
       // Atualiza com tags restantes
       const updatedAt = new Date();
       await db.notes.update(noteId, {
         tags: remainingTags,
         updatedAt,
+        expiresAt: getExpirationDate(updatedAt),
         syncStatus: 'pending',
       });
 
       const updatedNote = await db.notes.get(noteId);
       if (updatedNote) {
         await queueNoteForSyncInTransaction('update', updatedNote);
+        await syncVisitExpirationInTransaction(updatedNote.visitId, updatedNote.expiresAt);
       }
     }
   });

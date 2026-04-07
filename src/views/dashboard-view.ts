@@ -9,7 +9,14 @@ import { liveQuery, type Subscription } from 'dexie';
 import { navigate, getCurrentRoute } from '@/router/router';
 import { getAllNotes, deleteNotes } from '@/services/db/notes-service';
 import { getCurrentUserVisitMember } from '@/services/db/visit-members-service';
-import { getVisitById, deletePrivateVisit, leaveVisit, deleteGroupVisitAsOwner, ensureVisitIsGroup } from '@/services/db/visits-service';
+import {
+  getVisitById,
+  isVisitExpiredLocally,
+  deletePrivateVisit,
+  leaveVisit,
+  deleteGroupVisitAsOwner,
+  ensureVisitIsGroup,
+} from '@/services/db/visits-service';
 import { createVisitInviteForVisit, buildVisitInviteLink } from '@/services/db/visit-invites-service';
 import { canEditNote, canDeleteNote, getVisitAccessState, type VisitAccessState } from '@/services/auth/visit-permissions';
 import { getDashboardGroupActions } from '@/services/auth/dashboard-actions-policy';
@@ -49,6 +56,7 @@ export class DashboardView extends LitElement {
   @state() private previewMessage = '';
   @state() private member: VisitMember | null = null;
   @state() private currentVisit: Visit | null = null;
+  @state() private isVisitExpired = false;
   @state() private accessState: VisitAccessState = 'no-membership';
   @state() private actions: DashboardAction[] = [];
   @state() private isDeleteConfirmOpen = false;
@@ -100,9 +108,12 @@ export class DashboardView extends LitElement {
     if (!this.visitId) return;
 
     try {
-      this.currentVisit = (await getVisitById(this.visitId)) ?? null;
+      const visit = await getVisitById(this.visitId);
+      this.currentVisit = visit ?? null;
+      this.isVisitExpired = !visit && await isVisitExpiredLocally(this.visitId);
     } catch {
       this.currentVisit = null;
+      this.isVisitExpired = false;
     }
   }
 
@@ -291,7 +302,13 @@ export class DashboardView extends LitElement {
 
     try {
       await deleteNotes(noteIds);
-      this.showTemporaryToast(`${String(noteIds.length)} nota(s) excluída(s)`);
+      await this.loadVisit();
+
+      if (this.isVisitExpired) {
+        this.showTemporaryToast('Visita expirada localmente');
+      } else {
+        this.showTemporaryToast(`${String(noteIds.length)} nota(s) excluída(s)`);
+      }
     } catch (error) {
       console.error('Erro ao excluir notas:', error);
       this.showTemporaryToast('Erro ao excluir notas');
@@ -509,7 +526,7 @@ export class DashboardView extends LitElement {
 
   private renderAccessDenied() {
     return html`
-      <app-header title="Acesso negado"></app-header>
+      <app-header title="Visita indisponível"></app-header>
       <main class="container-fluid wf-page-container wf-with-header wf-sheet-safe pb-4">
         <div class="d-flex align-items-center justify-content-center" style="min-height: 55vh;">
           <div class="card border-0 shadow-sm text-center w-100" style="max-width: 420px;">
@@ -517,10 +534,32 @@ export class DashboardView extends LitElement {
               <svg class="mx-auto text-secondary opacity-75 mb-3" width="56" height="56" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
               </svg>
-              <p class="h6 mb-2">Acesso negado</p>
-              <p class="text-secondary mb-3">Você não tem permissão para visualizar esta visita.</p>
+              <p class="h6 mb-2">Visita indisponível</p>
+              <p class="text-secondary mb-3">Esta visita pode ter expirado ou você não tem mais acesso.</p>
               <button type="button" class="btn btn-outline-secondary" @click=${this.handleBackClick}>
                 Voltar
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    `;
+  }
+
+  private renderVisitExpired() {
+    return html`
+      <app-header title="Visita expirada"></app-header>
+      <main class="container-fluid wf-page-container wf-with-header wf-sheet-safe pb-4">
+        <div class="d-flex align-items-center justify-content-center" style="min-height: 55vh;">
+          <div class="card border-0 shadow-sm text-center w-100" style="max-width: 420px;">
+            <div class="card-body p-4">
+              <svg class="mx-auto text-secondary opacity-75 mb-3" width="56" height="56" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m2 9H7a2 2 0 01-2-2V7a2 2 0 012-2h2m8 0h-2m2 0v2m0-2a2 2 0 012 2v2" />
+              </svg>
+              <p class="h6 mb-2">Visita expirada</p>
+              <p class="text-secondary mb-3">Esta visita expirou localmente e não está mais disponível.</p>
+              <button type="button" class="btn btn-primary" @click=${this.handleBackClick}>
+                Ir para minhas visitas
               </button>
             </div>
           </div>
@@ -665,12 +704,16 @@ export class DashboardView extends LitElement {
   }
 
   override render() {
+    if (this.isVisitExpired) {
+      return this.renderVisitExpired();
+    }
+
     // Usuário removido da visita - mensagem específica
     if (this.isUserRemoved()) {
       return this.renderAccessRemoved();
     }
 
-    // Sem membership - acesso negado genérico
+    // Sem membership - visita indisponível
     if (this.isUserNoMembership()) {
       return this.renderAccessDenied();
     }

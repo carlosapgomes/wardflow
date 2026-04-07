@@ -22,6 +22,9 @@ export interface Visit {
   /** Timestamp de criação */
   createdAt: Date;
 
+  /** Timestamp de expiração (padrão: 14 dias) */
+  expiresAt: Date;
+
   /** Timestamp de atualização */
   updatedAt?: Date;
 }
@@ -32,6 +35,9 @@ export interface Visit {
 export const VISIT_CONSTANTS = {
   /** Tamanho máximo do nome */
   MAX_NAME_LENGTH: 100,
+
+  /** Dias até expiração padrão */
+  EXPIRATION_DAYS: 14,
 } as const;
 
 /**
@@ -64,6 +70,8 @@ export function getCurrentDate(): string {
  */
 export function createVisit(partial: Partial<Visit>): Visit {
   const now = new Date();
+  const expiresAt = new Date(now);
+  expiresAt.setDate(expiresAt.getDate() + VISIT_CONSTANTS.EXPIRATION_DAYS);
 
   return {
     id: crypto.randomUUID(),
@@ -72,6 +80,7 @@ export function createVisit(partial: Partial<Visit>): Visit {
     date: getCurrentDate(),
     mode: 'private',
     createdAt: now,
+    expiresAt,
     ...partial,
   };
 }

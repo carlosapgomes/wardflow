@@ -9,7 +9,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockNotesGet = vi.fn();
 const mockNotesUpdate = vi.fn();
 const mockNotesDelete = vi.fn();
+const mockVisitsGet = vi.fn();
+const mockVisitsPut = vi.fn();
 const mockSyncQueueAdd = vi.fn();
+const mockNotesWhere = vi.fn();
 
 vi.mock('./dexie-db', () => ({
   db: {
@@ -17,6 +20,11 @@ vi.mock('./dexie-db', () => ({
       get: mockNotesGet,
       update: mockNotesUpdate,
       delete: mockNotesDelete,
+      where: mockNotesWhere,
+    },
+    visits: {
+      get: mockVisitsGet,
+      put: mockVisitsPut,
     },
     syncQueue: {
       add: mockSyncQueueAdd,
@@ -59,8 +67,17 @@ describe('notes-service - removeTagFromNote', () => {
 
     mockNotesGet.mockResolvedValueOnce(mockNote);
     mockNotesUpdate.mockResolvedValueOnce(undefined);
-    mockSyncQueueAdd.mockResolvedValueOnce(undefined);
-    mockNotesGet.mockResolvedValueOnce({ ...mockNote, tags: ['UTI'] });
+    mockVisitsGet.mockResolvedValueOnce({
+      id: 'visit-123',
+      userId: 'user-123',
+      name: 'Visita',
+      date: '2026-04-07',
+      mode: 'private',
+      createdAt: new Date(),
+      expiresAt: new Date(),
+    });
+    mockSyncQueueAdd.mockResolvedValue(undefined);
+    mockNotesGet.mockResolvedValueOnce({ ...mockNote, tags: ['UTI'], expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) });
 
     const result = await removeTagFromNote('note-123', 'enfermaria');
 
@@ -68,6 +85,12 @@ describe('notes-service - removeTagFromNote', () => {
     expect(mockNotesUpdate).toHaveBeenCalledWith('note-123', expect.objectContaining({
       tags: ['UTI'],
     }));
+    const updatedNotePayload = mockNotesUpdate.mock.calls[0]?.[1] as { expiresAt?: Date };
+    expect(updatedNotePayload.expiresAt).toBeInstanceOf(Date);
+
+    const updatedVisitPayload = mockVisitsPut.mock.calls[0]?.[0] as { id: string; expiresAt?: Date };
+    expect(updatedVisitPayload.id).toBe('visit-123');
+    expect(updatedVisitPayload.expiresAt).toBeInstanceOf(Date);
   });
 
   it('deve retornar "deleted" quando remove última tag', async () => {
@@ -89,12 +112,38 @@ describe('notes-service - removeTagFromNote', () => {
 
     mockNotesGet.mockResolvedValueOnce(mockNote);
     mockNotesDelete.mockResolvedValueOnce(undefined);
-    mockSyncQueueAdd.mockResolvedValueOnce(undefined);
+    mockSyncQueueAdd.mockResolvedValue(undefined);
+    mockNotesWhere.mockImplementation((index: string) => {
+      if (index === 'visitId') {
+        return {
+          equals: vi.fn().mockReturnValue({
+            count: vi.fn().mockResolvedValue(0),
+          }),
+        };
+      }
 
-    const result = await removeTagFromNote('note-123', 'uti');
+      return {
+        equals: vi.fn().mockReturnValue({
+          count: vi.fn().mockResolvedValue(0),
+        }),
+      };
+    });
+    mockVisitsGet.mockResolvedValueOnce({
+      id: 'visit-123',
+      userId: 'user-123',
+      name: 'Visita',
+      date: '2026-04-07',
+      mode: 'private',
+      createdAt: new Date(),
+      expiresAt: new Date(),
+    });
 
-    expect(result).toBe('deleted');
+    await expect(removeTagFromNote('note-123', 'uti')).resolves.toBe('deleted');
     expect(mockNotesDelete).toHaveBeenCalledWith('note-123');
+
+    const updatedVisit = mockVisitsPut.mock.calls[0]?.[0] as { id: string; expiresAt: Date };
+    expect(updatedVisit.id).toBe('visit-123');
+    expect(updatedVisit.expiresAt).toBeInstanceOf(Date);
   });
 
   it('deve lançar erro se nota não encontrada', async () => {
@@ -125,8 +174,17 @@ describe('notes-service - removeTagFromNote', () => {
 
     mockNotesGet.mockResolvedValueOnce(mockNote);
     mockNotesUpdate.mockResolvedValueOnce(undefined);
-    mockSyncQueueAdd.mockResolvedValueOnce(undefined);
-    mockNotesGet.mockResolvedValueOnce({ ...mockNote, tags: ['ENFERMARIA'] });
+    mockVisitsGet.mockResolvedValueOnce({
+      id: 'visit-123',
+      userId: 'user-123',
+      name: 'Visita',
+      date: '2026-04-07',
+      mode: 'private',
+      createdAt: new Date(),
+      expiresAt: new Date(),
+    });
+    mockSyncQueueAdd.mockResolvedValue(undefined);
+    mockNotesGet.mockResolvedValueOnce({ ...mockNote, tags: ['ENFERMARIA'], expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) });
 
     // Passa 'uti' minúsculo - deve encontrar 'UTI' por normalização
     const result = await removeTagFromNote('note-123', 'uti');
@@ -135,6 +193,12 @@ describe('notes-service - removeTagFromNote', () => {
     expect(mockNotesUpdate).toHaveBeenCalledWith('note-123', expect.objectContaining({
       tags: ['ENFERMARIA'],
     }));
+    const updatedNotePayload = mockNotesUpdate.mock.calls[0]?.[1] as { expiresAt?: Date };
+    expect(updatedNotePayload.expiresAt).toBeInstanceOf(Date);
+
+    const updatedVisitPayload = mockVisitsPut.mock.calls[0]?.[0] as { id: string; expiresAt?: Date };
+    expect(updatedVisitPayload.id).toBe('visit-123');
+    expect(updatedVisitPayload.expiresAt).toBeInstanceOf(Date);
   });
 
   it('deve lançar erro se tag inválida (vazia)', async () => {

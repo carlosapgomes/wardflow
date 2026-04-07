@@ -27,7 +27,7 @@ import {
   type Firestore,
   type UpdateData,
 } from 'firebase/firestore';
-import type { Visit } from '@/models/visit';
+import { VISIT_CONSTANTS, type Visit } from '@/models/visit';
 import { SYNC_QUEUE_CONSTANTS } from '@/models/sync-queue';
 
 /**
@@ -117,6 +117,30 @@ export function serializeNoteForFirestore(note: Note): SerializedNoteData {
   }
 
   return serialized;
+}
+
+export interface SerializedVisitData {
+  id: string;
+  userId: string;
+  name: string;
+  date: string;
+  mode: 'private' | 'group';
+  createdAt: string;
+  expiresAt: string;
+  updatedAt: string;
+}
+
+export function serializeVisitForFirestore(visit: Visit): SerializedVisitData {
+  return {
+    id: visit.id,
+    userId: visit.userId,
+    name: visit.name,
+    date: visit.date,
+    mode: visit.mode,
+    createdAt: serializeDateLikeToIso(visit.createdAt),
+    expiresAt: serializeDateLikeToIso(visit.expiresAt),
+    updatedAt: serializeDateLikeToIso(visit.updatedAt),
+  };
 }
 
 export interface SyncStatus {
@@ -474,19 +498,7 @@ async function processVisitSyncItem(item: SyncQueueItem, firestore: Firestore): 
   }
 
   // create ou update: usar setDoc com merge
-  await setDoc(
-    visitRef,
-    {
-      id: visitPayload.id,
-      userId: visitPayload.userId,
-      name: visitPayload.name,
-      date: visitPayload.date,
-      mode: visitPayload.mode,
-      createdAt: serializeDateLikeToIso(visitPayload.createdAt),
-      updatedAt: serializeDateLikeToIso(visitPayload.updatedAt),
-    },
-    { merge: true }
-  );
+  await setDoc(visitRef, serializeVisitForFirestore(visitPayload), { merge: true });
 
   // Hardening: garantir membership owner remoto para evitar visitas órfãs sem ACL
   const ownerMemberRef = doc(firestore, 'visits', visitPayload.id, 'members', visitPayload.userId);
@@ -590,13 +602,18 @@ async function bootstrapVisitForOwner(
   try {
     // Bootstrap mínimo do documento da visita
     const visitRef = doc(firestore, 'visits', visitId);
+    const now = new Date();
+    const expiresAt = new Date(now);
+    expiresAt.setDate(expiresAt.getDate() + VISIT_CONSTANTS.EXPIRATION_DAYS);
+
     await setDoc(
       visitRef,
       {
         id: visitId,
         userId, // owner
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: now.toISOString(),
+        expiresAt: expiresAt.toISOString(),
+        updatedAt: now.toISOString(),
       },
       { merge: true }
     );
@@ -1280,6 +1297,7 @@ interface FirestoreVisitData {
   date: string;
   mode: 'private' | 'group';
   createdAt: unknown;
+  expiresAt?: unknown;
   updatedAt?: unknown;
 }
 
@@ -1392,6 +1410,11 @@ function convertFirestoreVisitToLocal(
   const createdAt = convertTimestampToDate(data.createdAt) ?? new Date();
   const updatedAt = convertTimestampToDate(data.updatedAt);
 
+  const fallbackExpiresAt = new Date(createdAt);
+  fallbackExpiresAt.setDate(fallbackExpiresAt.getDate() + VISIT_CONSTANTS.EXPIRATION_DAYS);
+
+  const expiresAt = convertTimestampToDate(data.expiresAt) ?? fallbackExpiresAt;
+
   return {
     id,
     userId,
@@ -1399,6 +1422,7 @@ function convertFirestoreVisitToLocal(
     date: data.date || '',
     mode: data.mode === 'group' ? 'group' : 'private',
     createdAt,
+    expiresAt,
     updatedAt,
   };
 }

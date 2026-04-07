@@ -108,6 +108,8 @@ describe('visit - createVisit', () => {
     expect(visit.date).toBe('2024-03-15');
     expect(visit.mode).toBe('private');
     expect(visit.createdAt).toBeInstanceOf(Date);
+    expect(visit.expiresAt).toBeInstanceOf(Date);
+    expect(visit.expiresAt.toISOString().split('T')[0]).toBe('2024-03-29');
 
     vi.useRealTimers();
   });

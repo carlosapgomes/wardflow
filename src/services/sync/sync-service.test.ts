@@ -760,6 +760,7 @@ describe('sync-service - pullRemoteVisitMembershipsAndVisits', () => {
         date: '2026-04-01',
         mode: 'private',
         createdAt: '2026-04-01T10:00:00.000Z',
+        expiresAt: '2026-04-15T10:00:00.000Z',
       }),
     } as Awaited<ReturnType<typeof getDoc>>);
 
@@ -768,7 +769,54 @@ describe('sync-service - pullRemoteVisitMembershipsAndVisits', () => {
     expect(mockedDb.visitMembers.bulkPut).toHaveBeenCalledTimes(1);
     const members = mockedDb.visitMembers.bulkPut.mock.calls[0][0] as { id: string }[];
     expect(members[0]?.id).toBe('visit-1:user-123');
-    expect(mockedDb.visits.put).toHaveBeenCalledWith(expect.objectContaining({ id: 'visit-1' }));
+    expect(mockedDb.visits.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'visit-1',
+        expiresAt: new Date('2026-04-15T10:00:00.000Z'),
+      })
+    );
+  });
+
+  it('aplica fallback de expiresAt quando remoto não possui o campo', async () => {
+    setupDefaults();
+
+    mockedGetDocs.mockResolvedValue({
+      empty: false,
+      docs: [
+        {
+          id: 'user-123',
+          data: () => ({
+            id: 'visit-1:user-123',
+            visitId: 'visit-1',
+            userId: 'user-123',
+            role: 'owner',
+            status: 'active',
+            createdAt: '2026-04-01T10:00:00.000Z',
+          }),
+        },
+      ],
+    } as Awaited<ReturnType<typeof getDocs>>);
+
+    mockedGetDoc.mockResolvedValue({
+      exists: () => true,
+      data: () => ({
+        id: 'visit-1',
+        userId: 'user-123',
+        name: 'Visita 01-04-2026 privada',
+        date: '2026-04-01',
+        mode: 'private',
+        createdAt: '2026-04-01T10:00:00.000Z',
+      }),
+    } as Awaited<ReturnType<typeof getDoc>>);
+
+    await syncService.pullRemoteVisitMembershipsAndVisits();
+
+    expect(mockedDb.visits.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'visit-1',
+        expiresAt: new Date('2026-04-15T10:00:00.000Z'),
+      })
+    );
   });
 
   it('reconcilia memberships removidos limpando visita local', async () => {
@@ -849,6 +897,27 @@ describe('sync-service - pullRemoteVisitMembershipsAndVisits', () => {
     expect(mockedDb.visitMembers.bulkPut).toHaveBeenCalledTimes(1);
     expect(mockedDb.visits.put).toHaveBeenCalledTimes(1);
     expect(mockedDb.visits.put).toHaveBeenCalledWith(expect.objectContaining({ id: 'visit-2' }));
+  });
+});
+
+describe('sync-service - serializeVisitForFirestore', () => {
+  it('serializa visit.expiresAt para Firestore', () => {
+    const visit = {
+      id: 'visit-1',
+      userId: 'user-123',
+      name: 'Visita A',
+      date: '2026-04-01',
+      mode: 'private' as const,
+      createdAt: new Date('2026-04-01T10:00:00.000Z'),
+      expiresAt: new Date('2026-04-15T10:00:00.000Z'),
+      updatedAt: new Date('2026-04-01T11:00:00.000Z'),
+    };
+
+    const serialized = syncService.serializeVisitForFirestore(visit);
+
+    expect(serialized.createdAt).toBe('2026-04-01T10:00:00.000Z');
+    expect(serialized.expiresAt).toBe('2026-04-15T10:00:00.000Z');
+    expect(serialized.updatedAt).toBe('2026-04-01T11:00:00.000Z');
   });
 });
 

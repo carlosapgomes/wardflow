@@ -8,7 +8,7 @@ import { customElement, state } from 'lit/decorators.js';
 import { initializeRouter, subscribeToRoute, getCurrentRoute, navigate, type RouteMatch } from '@/router/router';
 import { initializeAuth, subscribeToAuth, type AuthState } from '@/services/auth/auth-service';
 import { initializeTheme } from '@/services/theme/theme-service';
-import { cleanExpiredNotes } from '@/services/db/dexie-db';
+import { cleanExpiredLocalData } from '@/services/db/dexie-db';
 import { validateRedirectUrl, getCurrentPathWithQuery } from '@/utils/redirect-validator';
 import {
   cleanupSync,
@@ -53,7 +53,7 @@ export class VisitaMedApp extends LitElement {
     initializeTheme();
 
     // Higiene local (não bloqueia UI)
-    void cleanExpiredNotes();
+    void cleanExpiredLocalData();
 
     // Inicializa orquestração de sync automática
     initializeSync();
@@ -152,6 +152,7 @@ export class VisitaMedApp extends LitElement {
     await pullRemoteVisitMembershipsAndVisits();
     await pullRemoteNotes();
     await pullRemoteSettings();
+    await cleanExpiredLocalData();
   }
 
   override render() {

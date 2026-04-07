@@ -17,6 +17,7 @@ import {
 } from '@/services/db/notes-service';
 import { normalizeTagList } from '@/models/tag';
 import { getCurrentUserVisitMember } from '@/services/db/visit-members-service';
+import { getVisitById, isVisitExpiredLocally } from '@/services/db/visits-service';
 import { canEditNote, getVisitAccessState, type VisitAccessState } from '@/services/auth/visit-permissions';
 import { NOTE_CONSTANTS } from '@/models/note';
 import { applyInputCase, getInputPreferences } from '@/services/settings/settings-service';
@@ -38,6 +39,7 @@ export class NewNoteView extends LitElement {
   @state() private canEdit = false;
   @state() private permissionChecked = false;
   @state() private accessState: VisitAccessState = 'no-membership';
+  @state() private isVisitExpired = false;
   @state() private tagsInput = '';
   @state() private tags: string[] = [];
 
@@ -83,8 +85,9 @@ export class NewNoteView extends LitElement {
     if (route?.params['visitId']) {
       this.visitId = route.params['visitId'];
       await this.checkPermissions();
+      await this.checkVisitAvailability();
     }
-    if (route?.params['id']) {
+    if (route?.params['id'] && !this.isVisitExpired) {
       this.noteId = route.params['id'];
       await this.loadNote();
     }
@@ -107,6 +110,26 @@ export class NewNoteView extends LitElement {
 
   private isUserRemoved(): boolean {
     return this.accessState === 'removed';
+  }
+
+  private async checkVisitAvailability(): Promise<void> {
+    if (!this.visitId) {
+      this.isVisitExpired = false;
+      return;
+    }
+
+    try {
+      const visit = await getVisitById(this.visitId);
+
+      if (visit) {
+        this.isVisitExpired = false;
+        return;
+      }
+
+      this.isVisitExpired = await isVisitExpiredLocally(this.visitId);
+    } catch {
+      this.isVisitExpired = false;
+    }
   }
 
   private async loadNote(): Promise<void> {
@@ -358,6 +381,26 @@ export class NewNoteView extends LitElement {
         <main class="container-fluid wf-page-container wf-with-header pb-4">
           <div class="d-flex align-items-center justify-content-center text-secondary" style="min-height: 50vh;">
             Verificando permissões...
+          </div>
+        </main>
+      `;
+    }
+
+    if (this.isVisitExpired) {
+      return html`
+        <app-header title="Visita expirada" ?showBack=${true} @back-click=${this.handleBackClick}></app-header>
+        <main class="container-fluid wf-page-container wf-with-header pb-4">
+          <div class="d-flex flex-column align-items-center justify-content-center text-center" style="min-height: 50vh;">
+            <div class="mb-4">
+              <svg class="mx-auto text-secondary opacity-75" width="48" height="48" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m2 9H7a2 2 0 01-2-2V7a2 2 0 012-2h2m8 0h-2m2 0v2m0-2a2 2 0 012 2v2" />
+              </svg>
+            </div>
+            <h5 class="text-dark mb-2">Visita expirada</h5>
+            <p class="text-secondary mb-4">Esta visita expirou localmente e não aceita novas alterações.</p>
+            <button type="button" class="btn btn-primary" @click=${() => { navigate('/dashboard'); }}>
+              Ir para minhas visitas
+            </button>
           </div>
         </main>
       `;

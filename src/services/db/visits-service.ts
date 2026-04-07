@@ -12,6 +12,7 @@ import { getAuthState } from '@/services/auth/auth-service';
 import { createOwnerVisitMember, getVisitMember } from './visit-members-service';
 import type { VisitMember } from '@/models/visit-member';
 import { canDuplicateVisit } from '@/services/auth/visit-permissions';
+import { filterActiveVisits, isVisitActive } from '@/utils/visit-expiration';
 
 /**
  * Obtém o ID do usuário atual ou lança erro se não autenticado
@@ -198,7 +199,7 @@ export async function getAllVisits(): Promise<Visit[]> {
     .reverse()
     .sortBy('date');
 
-  return visits;
+  return filterActiveVisits(visits, new Date());
 }
 
 /**
@@ -216,7 +217,30 @@ export async function getVisitById(visitId: string): Promise<Visit | undefined> 
 
   validateOwnership(visit, userId);
 
+  if (!isVisitActive(visit, new Date())) {
+    return undefined;
+  }
+
   return visit;
+}
+
+/**
+ * Retorna true quando a visita existe localmente e está expirada
+ */
+export async function isVisitExpiredLocally(visitId: string): Promise<boolean> {
+  const { user } = getAuthState();
+
+  if (!user) {
+    return false;
+  }
+
+  const visit = await db.visits.get(visitId);
+
+  if (!visit || visit.userId !== user.uid) {
+    return false;
+  }
+
+  return !isVisitActive(visit, new Date());
 }
 
 /**

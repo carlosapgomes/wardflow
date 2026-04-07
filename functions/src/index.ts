@@ -4,6 +4,7 @@
  */
 
 import { onRequest } from 'firebase-functions/v2/https';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import * as admin from 'firebase-admin';
 import { createHash } from 'crypto';
 import type { Request, Response } from 'express';
@@ -506,3 +507,123 @@ export const deleteVisitEndpointV2 = onRequest({ region: 'southamerica-east1' },
     res.status(500).json({ error: 'internal-error' });
   }
 });
+
+const CLEANUP_SCHEDULER_REGION = 'southamerica-east1';
+const CLEANUP_SCHEDULER_CRON = 'every 15 minutes';
+const EXPIRED_VISITS_BATCH_SIZE = 50;
+const NOTES_DELETE_BATCH_SIZE = 300;
+const MAX_CLEANUP_BATCH_ROUNDS = 20;
+
+async function deleteNotesByVisitId(visitId: string): Promise<number> {
+  let deletedCount = 0;
+
+  while (true) {
+    const notesSnapshot = await firestore
+      .collectionGroup('notes')
+      .where('visitId', '==', visitId)
+      .limit(NOTES_DELETE_BATCH_SIZE)
+      .get();
+
+    if (notesSnapshot.empty) {
+      return deletedCount;
+    }
+
+    const batch = firestore.batch();
+    for (const noteDoc of notesSnapshot.docs) {
+      batch.delete(noteDoc.ref);
+    }
+
+    await batch.commit();
+    deletedCount += notesSnapshot.size;
+  }
+}
+
+async function cleanupExpiredVisit(visitId: string): Promise<number> {
+  const notesDeleted = await deleteNotesByVisitId(visitId);
+  const visitRef = firestore.collection('visits').doc(visitId);
+  await firestore.recursiveDelete(visitRef);
+  return notesDeleted;
+}
+
+/**
+ * Scheduler global de cleanup de visitas expiradas.
+ * Remove visita + subcoleções + mirrors legados em /users/{uid}/notes.
+ */
+export const cleanupExpiredVisitsScheduler = onSchedule(
+  {
+    schedule: CLEANUP_SCHEDULER_CRON,
+    region: CLEANUP_SCHEDULER_REGION,
+  },
+  async (_event) => {
+    const now = new Date();
+    const nowTimestamp = admin.firestore.Timestamp.fromDate(now);
+
+    let expiredVisitsFound = 0;
+    let visitsCleaned = 0;
+    let deletedNotesCount = 0;
+    const failedVisitIds: string[] = [];
+
+    console.log('[cleanupExpiredVisitsScheduler] Start', {
+      nowIso: now.toISOString(),
+      nowTimestamp: nowTimestamp.toMillis(),
+    });
+
+    for (let round = 0; round < MAX_CLEANUP_BATCH_ROUNDS; round++) {
+      const expiredVisitsSnapshot = await firestore
+        .collection('visits')
+        .where('expiresAt', '<=', nowTimestamp)
+        .limit(EXPIRED_VISITS_BATCH_SIZE)
+        .get();
+
+      if (expiredVisitsSnapshot.empty) {
+        break;
+      }
+
+      expiredVisitsFound += expiredVisitsSnapshot.size;
+      let cleanedThisRound = 0;
+
+      for (const visitDoc of expiredVisitsSnapshot.docs) {
+        const visitId = visitDoc.id;
+        const expiresAt = parseDate(visitDoc.data()['expiresAt']);
+
+        if (!expiresAt || expiresAt > now) {
+          console.log('[cleanupExpiredVisitsScheduler] Skip visit with invalid/non-expired expiresAt', {
+            visitId,
+            expiresAt: visitDoc.data()['expiresAt'],
+          });
+          continue;
+        }
+
+        try {
+          const removedNotes = await cleanupExpiredVisit(visitId);
+          deletedNotesCount += removedNotes;
+          visitsCleaned += 1;
+          cleanedThisRound += 1;
+
+          console.log('[cleanupExpiredVisitsScheduler] Visit cleaned', {
+            visitId,
+            removedNotes,
+          });
+        } catch (error) {
+          failedVisitIds.push(visitId);
+          console.error('[cleanupExpiredVisitsScheduler] Failed to clean visit', {
+            visitId,
+            error,
+          });
+        }
+      }
+
+      if (cleanedThisRound === 0) {
+        console.warn('[cleanupExpiredVisitsScheduler] No progress in batch round, stopping early to avoid loop');
+        break;
+      }
+    }
+
+    console.log('[cleanupExpiredVisitsScheduler] Summary', {
+      expiredVisitsFound,
+      visitsCleaned,
+      deletedNotesCount,
+      failedVisitIds,
+    });
+  }
+);

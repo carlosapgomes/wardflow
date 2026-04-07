@@ -10,6 +10,10 @@ import type { SyncQueueItem } from '@/models/sync-queue';
 import type { Visit } from '@/models/visit';
 import type { VisitMember } from '@/models/visit-member';
 import type { VisitInvite } from '@/models/visit-invite';
+import {
+  cleanExpiredLocalDataFromDb,
+  type LocalExpirationCleanupResult,
+} from './local-expiration-cleanup';
 
 /**
  * Classe principal do banco de dados
@@ -25,14 +29,14 @@ class VisitaMedDB extends Dexie {
   constructor() {
     super('VisitaMedDB');
 
-    // v7: Remove wardStats table e índices, tags-first
-    this.version(7)
+    // v8: adiciona expiresAt em visits
+    this.version(8)
       .stores({
         // Tags-first: remove índice ward
         notes: 'id, userId, visitId, date, syncStatus, expiresAt',
         settings: 'id, userId',
         syncQueue: 'id, userId, entityType, entityId, createdAt',
-        visits: 'id, userId, date',
+        visits: 'id, userId, date, expiresAt',
         visitMembers: 'id, visitId, userId, role, status, updatedAt',
         visitInvites: 'id, visitId, createdByUserId, token, role, expiresAt, createdAt, revokedAt',
       })
@@ -67,12 +71,18 @@ export async function clearLocalUserData(): Promise<void> {
 }
 
 /**
- * Limpa notas expiradas do banco local
+ * Limpa dados locais expirados (notas + visitas e dados relacionados)
+ */
+export async function cleanExpiredLocalData(): Promise<LocalExpirationCleanupResult> {
+  return cleanExpiredLocalDataFromDb(db);
+}
+
+/**
+ * Compatibilidade com slice anterior: retorna apenas a contagem de notas expiradas removidas
  */
 export async function cleanExpiredNotes(): Promise<number> {
-  const now = new Date();
-  const expiredCount = await db.notes.where('expiresAt').below(now).delete();
-  return expiredCount;
+  const result = await cleanExpiredLocalData();
+  return result.expiredNotesRemoved;
 }
 
 /**

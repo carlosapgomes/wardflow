@@ -2,9 +2,18 @@
  * Testes para visits-service - validação de criação de visitas e membership
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createOwnerVisitMember } from './visit-members-service';
-import { duplicateVisitAsPrivate, deletePrivateVisit, leaveVisit, deleteGroupVisitAsOwner, ensureVisitIsGroup } from './visits-service';
+import {
+  duplicateVisitAsPrivate,
+  deletePrivateVisit,
+  leaveVisit,
+  deleteGroupVisitAsOwner,
+  ensureVisitIsGroup,
+  getAllVisits,
+  getVisitById,
+  isVisitExpiredLocally,
+} from './visits-service';
 import type { Visit } from '@/models/visit';
 import type { Note } from '@/models/note';
 import type { VisitMember } from '@/models/visit-member';
@@ -110,6 +119,92 @@ describe('visits-service - createPrivateVisit integration', () => {
   });
 });
 
+describe('visits-service expiration filtering', () => {
+  const mockUserId = 'user-123';
+
+  const mockDb = db as unknown as {
+    visits: {
+      where: ReturnType<typeof vi.fn>;
+      get: ReturnType<typeof vi.fn>;
+    };
+  };
+  const mockGetAuthStateFn = getAuthState as unknown as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-07T10:00:00.000Z'));
+    mockGetAuthStateFn.mockReturnValue({ user: { uid: mockUserId } });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('getAllVisits retorna apenas visitas ativas', async () => {
+    const activeVisit: Visit = {
+      id: 'visit-active',
+      userId: mockUserId,
+      name: 'Ativa',
+      date: '2026-04-07',
+      mode: 'private',
+      createdAt: new Date('2026-04-07T09:00:00.000Z'),
+      expiresAt: new Date('2026-04-21T10:00:00.000Z'),
+    };
+
+    const expiredVisit: Visit = {
+      id: 'visit-expired',
+      userId: mockUserId,
+      name: 'Expirada',
+      date: '2026-04-07',
+      mode: 'private',
+      createdAt: new Date('2026-04-07T09:00:00.000Z'),
+      expiresAt: new Date('2026-04-07T10:00:00.000Z'),
+    };
+
+    mockDb.visits.where.mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        reverse: vi.fn().mockReturnThis(),
+        sortBy: vi.fn().mockResolvedValue([activeVisit, expiredVisit]),
+      }),
+    } as { equals: ReturnType<typeof vi.fn> });
+
+    const result = await getAllVisits();
+
+    expect(result).toEqual([activeVisit]);
+  });
+
+  it('getVisitById retorna undefined para visita expirada', async () => {
+    mockDb.visits.get.mockResolvedValue({
+      id: 'visit-expired',
+      userId: mockUserId,
+      name: 'Expirada',
+      date: '2026-04-07',
+      mode: 'private',
+      createdAt: new Date('2026-04-07T09:00:00.000Z'),
+      expiresAt: new Date('2026-04-07T10:00:00.000Z'),
+    } as Visit);
+
+    const result = await getVisitById('visit-expired');
+
+    expect(result).toBeUndefined();
+  });
+
+  it('isVisitExpiredLocally retorna true para visita local expirada', async () => {
+    mockDb.visits.get.mockResolvedValue({
+      id: 'visit-expired',
+      userId: mockUserId,
+      name: 'Expirada',
+      date: '2026-04-07',
+      mode: 'private',
+      createdAt: new Date('2026-04-07T09:00:00.000Z'),
+      expiresAt: new Date('2026-04-07T10:00:00.000Z'),
+    } as Visit);
+
+    await expect(isVisitExpiredLocally('visit-expired')).resolves.toBe(true);
+  });
+});
+
 describe('duplicateVisitAsPrivate', () => {
   const mockUserId = 'user-current';
   const mockSourceVisitId = 'visit-source';
@@ -120,6 +215,7 @@ describe('duplicateVisitAsPrivate', () => {
     date: '2026-01-15',
     mode: 'group',
     createdAt: new Date(),
+    expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
   };
   const mockSourceMember: VisitMember = {
     id: `${mockSourceVisitId}:${mockUserId}`,
@@ -324,6 +420,7 @@ describe('deletePrivateVisit', () => {
     date: '2026-04-05',
     mode: 'private',
     createdAt: new Date(),
+    expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
   };
 
   const mockOwnerMember: VisitMember = {
@@ -509,6 +606,7 @@ describe('ensureVisitIsGroup', () => {
       date: '2026-04-05',
       mode: 'group',
       createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
     };
 
     mockDb.visits.get.mockResolvedValue(groupVisit);
@@ -843,6 +941,7 @@ describe('createPrivateVisit - nome opcional e dedupe', () => {
       date: currentDate,
       mode: 'private',
       createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
     };
 
     mockDb.visits.where.mockReturnValue({
@@ -871,6 +970,7 @@ describe('createPrivateVisit - nome opcional e dedupe', () => {
         date: currentDate,
         mode: 'private',
         createdAt: new Date(),
+        expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
       },
       {
         id: 'visit-2',
@@ -879,6 +979,7 @@ describe('createPrivateVisit - nome opcional e dedupe', () => {
         date: currentDate,
         mode: 'private',
         createdAt: new Date(),
+        expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
       },
     ];
 
