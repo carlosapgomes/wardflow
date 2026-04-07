@@ -1192,9 +1192,9 @@ describe('sync-service - syncNow hardening para visita removida remotamente', ()
       })),
     }));
 
-    mockedDb.syncQueue.get.mockImplementation((itemId: string) => (
+    mockedDb.syncQueue.get.mockImplementation(((itemId: string) => (
       queueItems.find((item) => item.id === itemId && existingQueueIds.has(item.id))
-    ));
+    )) as never);
 
     mockedDb.syncQueue.delete.mockImplementation((itemId: string) => {
       existingQueueIds.delete(itemId);
@@ -1202,7 +1202,7 @@ describe('sync-service - syncNow hardening para visita removida remotamente', ()
 
     mockedDb.syncQueue.count.mockResolvedValue(0);
 
-    const notesDeleteByVisitId = vi.fn(() => Promise.resolve(0));
+    const notesDeleteByVisitId = vi.fn((_visitId: string) => Promise.resolve(0));
     const membersDeleteByVisitId = vi.fn((visitId: string) => Promise.resolve(visitId === 'visit-removed' ? 1 : 0));
     const invitesDeleteByVisitId = vi.fn((visitId: string) => Promise.resolve(visitId === 'visit-removed' ? 1 : 0));
 

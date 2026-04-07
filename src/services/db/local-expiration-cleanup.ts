@@ -39,7 +39,7 @@ export interface ExpirationCleanupDb<TVisit extends { id: string } = { id: strin
     toArray(): Promise<SyncQueueItem[]>;
     delete(id: string): Promise<void>;
   };
-  transaction: (...args: [string, ...unknown[]]) => Promise<unknown>;
+  transaction(...args: unknown[]): Promise<unknown>;
 }
 
 function getVisitIdFromSyncQueueItem(item: SyncQueueItem): string | null {
