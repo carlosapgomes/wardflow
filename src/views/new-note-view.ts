@@ -19,8 +19,19 @@ import { normalizeTagList } from '@/models/tag';
 import { getCurrentUserVisitMember } from '@/services/db/visit-members-service';
 import { getVisitById, isVisitExpiredLocally } from '@/services/db/visits-service';
 import { canEditNote, getVisitAccessState, type VisitAccessState } from '@/services/auth/visit-permissions';
+import { getAuthState } from '@/services/auth/auth-service';
+import {
+  getTopUserTagSuggestions,
+  rebuildUserTagStats,
+  searchUserTagSuggestions,
+} from '@/services/db/user-tag-stats-service';
 import { NOTE_CONSTANTS } from '@/models/note';
 import { applyInputCase, getInputPreferences } from '@/services/settings/settings-service';
+import {
+  applyTagSuggestion,
+  filterSelectedSuggestions,
+  getActiveTagQuery,
+} from './new-note-tag-suggestions';
 
 @customElement('new-note-view')
 export class NewNoteView extends LitElement {
@@ -42,6 +53,11 @@ export class NewNoteView extends LitElement {
   @state() private isVisitExpired = false;
   @state() private tagsInput = '';
   @state() private tags: string[] = [];
+  @state() private tagSuggestions: string[] = [];
+  @state() private loadingTagSuggestions = false;
+
+  private tagSuggestionsUserId: string | null = null;
+  private tagSuggestionsRequestId = 0;
 
   // S13C: Estado inicial para detectar dirty
   private initialState = { bed: '', reference: '', note: '', tags: [] as string[], tagsInput: '' };
@@ -91,6 +107,8 @@ export class NewNoteView extends LitElement {
       this.noteId = route.params['id'];
       await this.loadNote();
     }
+
+    void this.initializeTagSuggestions();
   }
 
   private async checkPermissions(): Promise<void> {
@@ -180,6 +198,7 @@ export class NewNoteView extends LitElement {
 
   private handleTagsInput = (e: Event) => {
     this.tagsInput = (e.target as HTMLInputElement).value;
+    void this.refreshTagSuggestions();
   };
 
   private parseTagsFromInput(input: string): string[] {
@@ -191,17 +210,98 @@ export class NewNoteView extends LitElement {
     );
   }
 
+  private async initializeTagSuggestions(): Promise<void> {
+    const { user } = getAuthState();
+
+    if (!user) {
+      this.tagSuggestionsUserId = null;
+      this.tagSuggestions = [];
+      this.loadingTagSuggestions = false;
+      return;
+    }
+
+    this.tagSuggestionsUserId = user.uid;
+
+    this.loadingTagSuggestions = true;
+    try {
+      await rebuildUserTagStats(user.uid);
+    } catch (error) {
+      console.warn('[Nova Nota] Falha ao reconstruir sugestões de tags (best-effort):', error);
+    }
+
+    await this.refreshTagSuggestions();
+  }
+
+  private async refreshTagSuggestions(): Promise<void> {
+    if (!this.tagSuggestionsUserId) {
+      this.tagSuggestions = [];
+      this.loadingTagSuggestions = false;
+      return;
+    }
+
+    if (this.tags.length >= NOTE_CONSTANTS.MAX_TAGS_PER_NOTE) {
+      this.tagSuggestions = [];
+      this.loadingTagSuggestions = false;
+      return;
+    }
+
+    const requestId = ++this.tagSuggestionsRequestId;
+    this.loadingTagSuggestions = true;
+
+    try {
+      const activeQuery = getActiveTagQuery(this.tagsInput);
+      const stats = activeQuery
+        ? await searchUserTagSuggestions(this.tagSuggestionsUserId, activeQuery, 8)
+        : await getTopUserTagSuggestions(this.tagSuggestionsUserId, 8);
+
+      if (requestId !== this.tagSuggestionsRequestId) {
+        return;
+      }
+
+      const suggestedTags = stats.map((stat) => stat.tag);
+      this.tagSuggestions = filterSelectedSuggestions(suggestedTags, this.tags);
+    } catch (error) {
+      if (requestId === this.tagSuggestionsRequestId) {
+        this.tagSuggestions = [];
+      }
+      console.warn('[Nova Nota] Falha ao carregar sugestões de tags (best-effort):', error);
+    } finally {
+      if (requestId === this.tagSuggestionsRequestId) {
+        this.loadingTagSuggestions = false;
+      }
+    }
+  }
+
   private handleAddTag = () => {
     const newTags = this.parseTagsFromInput(this.tagsInput);
     const combined = [...new Set([...this.tags, ...newTags])];
-    this.tags = combined.slice(0, 10);
+    this.tags = combined.slice(0, NOTE_CONSTANTS.MAX_TAGS_PER_NOTE);
     this.tagsInput = '';
+    void this.refreshTagSuggestions();
+  };
+
+  private handleApplyTagSuggestion = (suggestedTag: string) => {
+    if (this.tags.length >= NOTE_CONSTANTS.MAX_TAGS_PER_NOTE) {
+      return;
+    }
+
+    const nextState = applyTagSuggestion(
+      this.tags,
+      this.tagsInput,
+      suggestedTag,
+      NOTE_CONSTANTS.MAX_TAGS_PER_NOTE
+    );
+
+    this.tags = nextState.tags;
+    this.tagsInput = nextState.tagsInput;
+    void this.refreshTagSuggestions();
   };
 
   private handleRemoveTag = async (tagToRemove: string) => {
     if (!this.isEditMode || !this.noteId) {
       // Modo criação: remove do draft local
       this.tags = this.tags.filter((tag) => tag !== tagToRemove);
+      void this.refreshTagSuggestions();
       return;
     }
 
@@ -217,6 +317,7 @@ export class NewNoteView extends LitElement {
       if (updatedNote) {
         this.tags = updatedNote.tags ?? [];
       }
+      void this.refreshTagSuggestions();
     } catch (err) {
       this.error = err instanceof Error ? err.message : 'Erro ao remover tag';
     }
@@ -484,6 +585,31 @@ export class NewNoteView extends LitElement {
                 </button>
               </div>
               <div class="form-text">Separe por vírgula. Máximo 10 tags.</div>
+
+              ${(this.loadingTagSuggestions || this.tagSuggestions.length > 0) && this.tags.length < NOTE_CONSTANTS.MAX_TAGS_PER_NOTE
+                ? html`
+                    <div class="mt-2">
+                      <div class="small text-secondary mb-2">Sugestões</div>
+                      ${this.loadingTagSuggestions && this.tagSuggestions.length === 0
+                        ? html`<div class="small text-secondary">Carregando sugestões...</div>`
+                        : html`
+                            <div class="d-flex flex-wrap gap-2">
+                              ${this.tagSuggestions.map((tag) => html`
+                                <button
+                                  type="button"
+                                  class="btn btn-sm btn-outline-primary rounded-pill py-2 px-3"
+                                  @click=${() => {
+                                    this.handleApplyTagSuggestion(tag);
+                                  }}
+                                >
+                                  ${tag}
+                                </button>
+                              `)}
+                            </div>
+                          `}
+                    </div>
+                  `
+                : null}
             </div>
 
             ${this.tags.length > 0 ? html`
