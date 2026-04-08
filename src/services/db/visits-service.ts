@@ -13,6 +13,7 @@ import { createOwnerVisitMember, getVisitMember } from './visit-members-service'
 import type { VisitMember } from '@/models/visit-member';
 import { canDuplicateVisit } from '@/services/auth/visit-permissions';
 import { filterActiveVisits, isVisitActive } from '@/utils/visit-expiration';
+import { triggerCurrentUserTagStatsRebuild } from './user-tag-stats-service';
 
 /**
  * Obtém o ID do usuário atual ou lança erro se não autenticado
@@ -287,6 +288,8 @@ export async function deletePrivateVisit(visitId: string): Promise<void> {
     await queueVisitForSyncInTransaction('delete', visit);
   });
 
+  triggerCurrentUserTagStatsRebuild();
+
   // Sync imediato se online + autenticado (fire-and-forget)
   triggerImmediateSync();
 }
@@ -400,6 +403,7 @@ export async function leaveVisit(visitId: string): Promise<void> {
     await db.visits.delete(visitId);
   });
 
+  triggerCurrentUserTagStatsRebuild();
   triggerImmediateSync();
 }
 
@@ -483,6 +487,8 @@ export async function deleteGroupVisitAsOwner(visitId: string): Promise<void> {
     await db.visitInvites.where('visitId').equals(visitId).delete();
     await db.visits.delete(visitId);
   });
+
+  triggerCurrentUserTagStatsRebuild();
 }
 
 /**

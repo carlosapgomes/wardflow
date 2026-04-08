@@ -115,7 +115,24 @@ export async function clearLocalUserData(): Promise<void> {
  * Limpa dados locais expirados (notas + visitas e dados relacionados)
  */
 export async function cleanExpiredLocalData(): Promise<LocalExpirationCleanupResult> {
-  return cleanExpiredLocalDataFromDb(db);
+  const result = await cleanExpiredLocalDataFromDb(db);
+
+  const shouldRebuildTagStats =
+    result.expiredNotesRemoved > 0 ||
+    result.expiredVisitsRemoved > 0 ||
+    result.relatedNotesRemoved > 0;
+
+  if (shouldRebuildTagStats) {
+    void import('./user-tag-stats-service')
+      .then(({ triggerCurrentUserTagStatsRebuild }) => {
+        triggerCurrentUserTagStatsRebuild();
+      })
+      .catch((error: unknown) => {
+        console.warn('[Dexie] Falha ao disparar rebuild de sugestões após limpeza local:', error);
+      });
+  }
+
+  return result;
 }
 
 /**

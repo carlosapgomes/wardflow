@@ -23,6 +23,10 @@ vi.mock('@/services/auth/auth-service', () => ({
   getAuthState: vi.fn(),
 }));
 
+vi.mock('./user-tag-stats-service', () => ({
+  triggerCurrentUserTagStatsRebuild: vi.fn(),
+}));
+
 vi.mock('./dexie-db', () => ({
   db: {
     visits: {
@@ -84,6 +88,10 @@ vi.mock('./dexie-db', () => ({
 // Importar db após os mocks para ter acesso aos métodos mockados
 const { db } = await import('./dexie-db');
 const { getAuthState } = await import('@/services/auth/auth-service');
+const { triggerCurrentUserTagStatsRebuild } = await import('./user-tag-stats-service');
+
+const mockTriggerCurrentUserTagStatsRebuild =
+  triggerCurrentUserTagStatsRebuild as unknown as ReturnType<typeof vi.fn>;
 
 describe('visit-members-service - createOwnerVisitMember', () => {
   it('deve criar membership com role owner', () => {
@@ -488,6 +496,7 @@ describe('deletePrivateVisit', () => {
     expect(queuedItems).toHaveLength(2);
     expect(queuedItems.some((item) => (item as { entityType: string; operation: string }).entityType === 'visit-member' && (item as { operation: string }).operation === 'delete')).toBe(true);
     expect(queuedItems.some((item) => (item as { entityType: string; operation: string }).entityType === 'visit' && (item as { operation: string }).operation === 'delete')).toBe(true);
+    expect(mockTriggerCurrentUserTagStatsRebuild).toHaveBeenCalledTimes(1);
   });
 
   it('deve remover visita privada com notas e enfileirar deletes de notas', async () => {
@@ -746,6 +755,7 @@ describe('leaveVisit', () => {
     expect(mockDb.syncQueue.add).not.toHaveBeenCalled();
     expect(mockDb.syncQueue.delete).toHaveBeenCalledWith('pending-note-1');
     expect(mockDb.visits.delete).toHaveBeenCalledWith(mockVisitId);
+    expect(mockTriggerCurrentUserTagStatsRebuild).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -835,6 +845,7 @@ describe('deleteGroupVisitAsOwner', () => {
     expect(fetch).toHaveBeenCalledWith('/api/visits/delete', expect.objectContaining({ method: 'POST' }));
     expect(mockDb.syncQueue.delete).toHaveBeenCalledWith('pending-note-1');
     expect(mockDb.visits.delete).toHaveBeenCalledWith(mockVisitId);
+    expect(mockTriggerCurrentUserTagStatsRebuild).toHaveBeenCalledTimes(1);
   });
 });
 

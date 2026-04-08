@@ -31,6 +31,10 @@ vi.mock('firebase/firestore', () => ({
   increment: vi.fn((n: number) => n), // Mock do increment
 }));
 
+vi.mock('@/services/db/user-tag-stats-service', () => ({
+  triggerCurrentUserTagStatsRebuild: vi.fn(),
+}));
+
 // Mock do Dexie para visitMembers e visits
 vi.mock('@/services/db/dexie-db', () => ({
   db: {
@@ -100,6 +104,7 @@ import { getAuthState } from '@/services/auth/auth-service';
 import { getFirebaseFirestore } from '@/services/auth/firebase';
 import { db } from '@/services/db/dexie-db';
 import { collectionGroup, query, where, getDocs, doc, getDoc, setDoc } from 'firebase/firestore';
+import { triggerCurrentUserTagStatsRebuild } from '@/services/db/user-tag-stats-service';
 
 // Removido: FirestoreWardStatData (tags-first)
 
@@ -726,6 +731,7 @@ describe('sync-service - reconcileMembershipVisitIds', () => {
 describe('sync-service - pullRemoteVisitMembershipsAndVisits', () => {
   const mockedGetAuthState = vi.mocked(getAuthState);
   const mockedGetFirebaseFirestore = vi.mocked(getFirebaseFirestore);
+  const mockedTriggerCurrentUserTagStatsRebuild = vi.mocked(triggerCurrentUserTagStatsRebuild);
   const mockedCollectionGroup = vi.mocked(collectionGroup);
   const mockedQuery = vi.mocked(query);
   const mockedWhere = vi.mocked(where);
@@ -809,6 +815,7 @@ describe('sync-service - pullRemoteVisitMembershipsAndVisits', () => {
         expiresAt: new Date('2026-04-15T10:00:00.000Z'),
       })
     );
+    expect(mockedTriggerCurrentUserTagStatsRebuild).toHaveBeenCalledTimes(1);
   });
 
   it('aplica fallback de expiresAt quando remoto não possui o campo', async () => {
@@ -1028,6 +1035,73 @@ describe('sync-service - pullRemoteVisitMembershipsAndVisits', () => {
     expect(membersDeleteByVisitId).toHaveBeenCalledWith('visit-removed');
     expect(invitesDeleteByVisitId).toHaveBeenCalledWith('visit-removed');
     expect(mockedDb.visits.delete).toHaveBeenCalledWith('visit-removed');
+  });
+});
+
+describe('sync-service - pullRemoteNotes', () => {
+  const mockedGetAuthState = vi.mocked(getAuthState);
+  const mockedGetFirebaseFirestore = vi.mocked(getFirebaseFirestore);
+  const mockedGetDocs = vi.mocked(getDocs);
+  const mockedTriggerCurrentUserTagStatsRebuild = vi.mocked(triggerCurrentUserTagStatsRebuild);
+
+  it('dispara rebuild best-effort após hidratar notas remotas', async () => {
+    vi.clearAllMocks();
+
+    const mockedDb = db as unknown as {
+      notes: {
+        get: ReturnType<typeof vi.fn>;
+        bulkPut: ReturnType<typeof vi.fn>;
+        where: ReturnType<typeof vi.fn>;
+        bulkDelete: ReturnType<typeof vi.fn>;
+      };
+      visitMembers: {
+        where: ReturnType<typeof vi.fn>;
+      };
+    };
+
+    mockedGetAuthState.mockReturnValue({
+      user: { uid: 'user-123' } as ReturnType<typeof getAuthState>['user'],
+      loading: false,
+      error: null,
+    });
+    mockedGetFirebaseFirestore.mockReturnValue({} as ReturnType<typeof getFirebaseFirestore>);
+
+    mockedDb.visitMembers.where.mockImplementationOnce(() => ({
+      toArray: vi.fn().mockResolvedValue([]),
+    }));
+
+    mockedDb.notes.where.mockImplementationOnce(() => ({
+      toArray: vi.fn().mockResolvedValue([]),
+    }));
+
+    mockedGetDocs.mockResolvedValueOnce({
+      docs: [
+        {
+          id: 'note-remote-1',
+          data: () => ({
+            visitId: 'visit-1',
+            date: '2026-04-08',
+            bed: '01',
+            note: 'Nota remota',
+            tags: ['UTI'],
+            createdAt: '2026-04-08T10:00:00.000Z',
+            expiresAt: '2026-04-22T10:00:00.000Z',
+          }),
+        },
+      ],
+    } as Awaited<ReturnType<typeof getDocs>>);
+
+    await syncService.pullRemoteNotes();
+
+    expect(mockedDb.notes.bulkPut).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'note-remote-1',
+          tags: ['UTI'],
+        }),
+      ])
+    );
+    expect(mockedTriggerCurrentUserTagStatsRebuild).toHaveBeenCalledTimes(1);
   });
 });
 

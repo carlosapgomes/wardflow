@@ -9,7 +9,7 @@ import { normalizeTagList, normalizeTagValue } from '@/models/tag';
 import { createSyncQueueItem } from '@/models/sync-queue';
 import { isNoteActive } from '@/utils/note-expiration';
 import { getAuthState } from '@/services/auth/auth-service';
-
+import { triggerCurrentUserTagStatsRebuild } from './user-tag-stats-service';
 
 export interface CreateNoteInput {
   visitId: string;
@@ -140,6 +140,8 @@ export async function saveNote(input: CreateNoteInput): Promise<Note> {
     await updateVisitExpirationLocallyInTransaction(note.visitId, note.expiresAt);
   });
 
+  triggerCurrentUserTagStatsRebuild();
+
   // Sync imediato se online + autenticado (fire-and-forget)
   triggerImmediateSync();
 
@@ -226,6 +228,8 @@ export async function deleteNote(noteId: string): Promise<void> {
     await expireVisitWhenLastNoteIsRemovedInTransaction(note.visitId);
   });
 
+  triggerCurrentUserTagStatsRebuild();
+
   // Sync imediato se online + autenticado (fire-and-forget)
   triggerImmediateSync();
 }
@@ -265,6 +269,8 @@ export async function deleteNotes(noteIds: string[]): Promise<void> {
       await expireVisitWhenLastNoteIsRemovedInTransaction(visitId);
     }
   });
+
+  triggerCurrentUserTagStatsRebuild();
 
   // Sync imediato se online + autenticado (fire-and-forget)
   triggerImmediateSync();
@@ -321,6 +327,8 @@ export async function updateNote(
     }
   });
 
+  triggerCurrentUserTagStatsRebuild();
+
   // Sync imediato se online + autenticado (fire-and-forget)
   triggerImmediateSync();
 }
@@ -349,7 +357,7 @@ export async function removeTagFromNote(
   validateOwnership(existingNote, userId);
 
   const currentTags = existingNote.tags ?? [];
-  
+
   // Filtra a tag a remover (por equivalência canônica)
   const remainingTags = currentTags.filter((tag) => normalizeTagValue(tag) !== normalizedTag);
 
@@ -377,6 +385,8 @@ export async function removeTagFromNote(
       }
     }
   });
+
+  triggerCurrentUserTagStatsRebuild();
 
   // Sync imediato se online + autenticado (fire-and-forget)
   triggerImmediateSync();

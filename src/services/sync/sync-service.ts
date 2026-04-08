@@ -11,6 +11,7 @@ import { normalizeSettings, SETTINGS_ID, type Settings } from '@/models/settings
 import { normalizeTagList } from '@/models/tag';
 import { getFirebaseFirestore } from '@/services/auth/firebase';
 import { getAuthState } from '@/services/auth/auth-service';
+import { triggerCurrentUserTagStatsRebuild } from '@/services/db/user-tag-stats-service';
 import {
   collection,
   collectionGroup,
@@ -222,6 +223,8 @@ export function setActiveVisitRealtime(visitId: string | null): void {
 
       // Processar notas em background sem bloquear
       void (async () => {
+        let hasRelevantLocalNoteChange = false;
+
         for (const docSnap of docs) {
           const data = docSnap.data() as FirestoreNoteData;
           const remoteNote = convertFirestoreNoteToLocal(docSnap.id, data, user.uid);
@@ -235,6 +238,7 @@ export function setActiveVisitRealtime(visitId: string | null): void {
         // Bulk upsert das notas resolvidas
         if (remoteNotes.length > 0) {
           await db.notes.bulkPut(remoteNotes);
+          hasRelevantLocalNoteChange = true;
           console.log(`[VisitaMed] Realtime: ${String(remoteNotes.length)} notas sincronizadas`);
         }
 
@@ -250,7 +254,12 @@ export function setActiveVisitRealtime(visitId: string | null): void {
 
         if (orphanedIds.length > 0) {
           await db.notes.bulkDelete(orphanedIds);
+          hasRelevantLocalNoteChange = true;
           console.log(`[VisitaMed] Realtime: ${String(orphanedIds.length)} notas removidas (synced)`);
+        }
+
+        if (hasRelevantLocalNoteChange) {
+          triggerCurrentUserTagStatsRebuild();
         }
       })();
     },
@@ -1120,6 +1129,8 @@ export async function pullRemoteNotes(): Promise<void> {
     // Upsert into IndexedDB com notas resolvidas e deduplicadas
     await db.notes.bulkPut(notesToUpsert);
 
+    let hasRelevantLocalNoteChange = notesToUpsert.length > 0;
+
     // Reconciliação: remover localmente notas órfãs (deletadas remotamente)
     // Só remove notas com syncStatus 'synced' para não perder alterações locais pendentes
     const remoteIds = new Set(notesToUpsert.map((n) => n.id));
@@ -1136,7 +1147,12 @@ export async function pullRemoteNotes(): Promise<void> {
 
     if (orphanedIds.length > 0) {
       await db.notes.bulkDelete(orphanedIds);
+      hasRelevantLocalNoteChange = true;
       console.log(`[VisitaMed] ${String(orphanedIds.length)} notas órfãs removidas localmente`);
+    }
+
+    if (hasRelevantLocalNoteChange) {
+      triggerCurrentUserTagStatsRebuild();
     }
 
     const legacyCount = legacyNotes.length;
@@ -1549,6 +1565,8 @@ export async function pullRemoteVisitMembershipsAndVisits(): Promise<void> {
       remoteMembers.push(convertFirestoreMemberToLocal(data));
     }
 
+    let hasRelevantAccessChange = remoteMembers.length > 0;
+
     if (remoteMembers.length > 0) {
       await db.visitMembers.bulkPut(remoteMembers);
     }
@@ -1577,6 +1595,7 @@ export async function pullRemoteVisitMembershipsAndVisits(): Promise<void> {
         const visitData = visitSnap.data() as FirestoreVisitData;
         const visit = convertFirestoreVisitToLocal(visitId, visitData, user.uid);
         await db.visits.put(visit);
+        hasRelevantAccessChange = true;
       } catch (visitError) {
         console.warn(`[VisitaMed] Erro ao hidratar visita ${visitId}:`, visitError);
       }
@@ -1584,6 +1603,11 @@ export async function pullRemoteVisitMembershipsAndVisits(): Promise<void> {
 
     for (const visitId of visitIdsToClean) {
       await removeVisitDataLocallyByVisitId(visitId, user.uid);
+      hasRelevantAccessChange = true;
+    }
+
+    if (hasRelevantAccessChange) {
+      triggerCurrentUserTagStatsRebuild();
     }
 
     console.log('[VisitaMed] Pull de memberships e visitas concluído');

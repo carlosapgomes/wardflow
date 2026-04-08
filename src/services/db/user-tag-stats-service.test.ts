@@ -9,6 +9,11 @@ const state = vi.hoisted(() => ({
   visitMembers: [] as VisitMember[],
   notes: [] as Note[],
   userTagStats: [] as UserTagStat[],
+  authUser: { uid: 'user-1' } as { uid: string } | null,
+}));
+
+vi.mock('@/services/auth/auth-service', () => ({
+  getAuthState: vi.fn(() => ({ user: state.authUser })),
 }));
 
 vi.mock('./dexie-db', () => ({
@@ -89,6 +94,7 @@ import {
   getTopUserTagSuggestions,
   rebuildUserTagStats,
   searchUserTagSuggestions,
+  triggerCurrentUserTagStatsRebuild,
 } from './user-tag-stats-service';
 
 function createVisit(partial: Partial<Visit>): Visit {
@@ -130,6 +136,7 @@ describe('user-tag-stats-service', () => {
     state.visitMembers = [];
     state.notes = [];
     state.userTagStats = [];
+    state.authUser = { uid: 'user-1' };
     vi.clearAllMocks();
   });
 
@@ -258,5 +265,41 @@ describe('user-tag-stats-service', () => {
 
     const emptyQueryFallback = await searchUserTagSuggestions('user-1', '   ', 2);
     expect(emptyQueryFallback.map((item) => item.tag)).toEqual(['CHOQUE', 'SEPSE']);
+  });
+
+  it('triggerCurrentUserTagStatsRebuild é no-op sem usuário autenticado', async () => {
+    state.authUser = null;
+    triggerCurrentUserTagStatsRebuild();
+
+    await Promise.resolve();
+
+    const { db } = await import('./dexie-db');
+    const mockedDb = db as unknown as { transaction: ReturnType<typeof vi.fn> };
+    expect(mockedDb.transaction).not.toHaveBeenCalled();
+  });
+
+  it('triggerCurrentUserTagStatsRebuild captura falha sem lançar erro', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation((..._args: unknown[]) => undefined);
+
+    const { db } = await import('./dexie-db');
+    const mockedDb = db as unknown as {
+      transaction: ReturnType<typeof vi.fn>;
+    };
+
+    mockedDb.transaction.mockRejectedValueOnce(new Error('boom-rebuild'));
+
+    expect(() => {
+      triggerCurrentUserTagStatsRebuild();
+    }).not.toThrow();
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[Tags] Falha ao reconstruir sugestões por usuário (best-effort):',
+      expect.any(Error)
+    );
+
+    warnSpy.mockRestore();
   });
 });

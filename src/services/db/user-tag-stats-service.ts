@@ -5,6 +5,7 @@ import type { Visit } from '@/models/visit';
 import type { VisitMember } from '@/models/visit-member';
 import { isNoteActive } from '@/utils/note-expiration';
 import { isVisitActive } from '@/utils/visit-expiration';
+import { getAuthState } from '@/services/auth/auth-service';
 import { db } from './dexie-db';
 
 const DEFAULT_SUGGESTION_LIMIT = 10;
@@ -125,6 +126,22 @@ export async function rebuildUserTagStats(userId: string): Promise<void> {
       await db.userTagStats.bulkPut(nextStats);
     }
   });
+}
+
+export function triggerCurrentUserTagStatsRebuild(): void {
+  try {
+    const { user } = getAuthState();
+
+    if (!user) {
+      return;
+    }
+
+    void rebuildUserTagStats(user.uid).catch((error: unknown) => {
+      console.warn('[Tags] Falha ao reconstruir sugestões por usuário (best-effort):', error);
+    });
+  } catch (error) {
+    console.warn('[Tags] Falha ao disparar rebuild de sugestões (best-effort):', error);
+  }
 }
 
 export async function getTopUserTagSuggestions(userId: string, limit?: number): Promise<UserTagStat[]> {
