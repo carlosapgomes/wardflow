@@ -95,6 +95,14 @@ Estado atual:
   - chips clicáveis para adicionar a sugestão
 - as estatísticas locais são mantidas automaticamente por rebuild best-effort após mutações locais, sync remoto, realtime, limpeza por expiração e mudanças de acesso/visita
 
+### 7) Listagem da visita sem separação por data da nota
+Estado atual:
+- a visita **não** é mais particionada visualmente por `note.date`
+- a listagem principal dentro da visita é agrupada apenas por **tag**
+- criar nota nova em visita antiga, mesmo no dia seguinte, não quebra mais a visita em blocos por data
+- `note.date` continua existindo como metadado
+- em `new-note-view`, no modo edição, a data da nota aparece de forma discreta como informação contextual
+
 ---
 
 ## Commits relevantes mais recentes
@@ -109,6 +117,9 @@ Estado atual:
 - `6e2241a` feat(tags): keep local tag suggestions in sync
 - `eab8a46` feat(tags): add local tag suggestions to note form
 - `c2b0e54` feat(tags): add local user tag suggestion stats
+
+### Listagem da visita
+- `556a050` fix(visit): stop grouping notes by note date
 
 ### Colaboração / convites
 - `97846dc` fix(collab): harden leave flow and invite accept hydration
@@ -282,6 +293,21 @@ Resumo:
 - falha no rebuild não quebra UI nem sync
 - `new-note-view` pode manter rebuild ao abrir como fallback seguro
 
+### K) Listagem da visita — notas deixam de ser agrupadas por data
+Arquivos principais:
+- `src/views/dashboard-view.ts`
+- `src/views/new-note-view.ts`
+- `src/utils/group-notes-by-tag.ts`
+- `src/utils/group-notes-by-tag.test.ts`
+
+Resumo:
+- `dashboard-view` deixa de usar agrupamento por `note.date`
+- a visita passa a listar notas agrupadas somente por tag
+- o escopo principal do dashboard fica simplificado para ações por tag
+- `date-group` deixa de estruturar a listagem principal da visita
+- `note.date` permanece no modelo, mas vira metadado
+- em modo de edição, `new-note-view` mostra `Data da nota: dd-mm-aaaa`
+
 ---
 
 ## Deploys / infraestrutura já aplicados
@@ -344,6 +370,14 @@ Se houver dúvida operacional, confirmar no Firebase Console se o índice de `in
   - `typecheck` ✅
   - `lint` ✅
   - `test` ✅
+
+### Listagem da visita sem agrupamento por data
+- `typecheck` ✅
+- `lint` ✅
+- `test` ✅
+- `npm run build` ✅
+- deploy de hosting ✅
+
 - Build final local antes do deploy:
   - `npm run build` ✅
   - `npm --prefix functions run build` ✅
@@ -389,6 +423,13 @@ Se houver dúvida operacional, confirmar no Firebase Console se o índice de `in
 - `src/services/sync/sync-service.ts`
 - `src/services/db/dexie-db.ts`
 
+### Listagem da visita
+- `src/views/dashboard-view.ts`
+- `src/views/new-note-view.ts`
+- `src/utils/group-notes-by-tag.ts`
+- `src/utils/group-notes-by-tag.test.ts`
+- `src/components/groups/tag-group.ts`
+
 ---
 
 ## Próximos ajustes / features prováveis
@@ -421,14 +462,19 @@ Possíveis refinamentos futuros:
 - debounce/coalescing simples se o rebuild automático de sugestões ficar frequente demais
 - pequenos ajustes visuais nos chips/sugestões conforme uso real
 
-### 4) Gestão visual de membros/convites
+### 4) Próximo refinamento possível da listagem da visita
+Possíveis próximos passos:
+- avaliar se faz sentido adicionar ação de exportar/compartilhar a visita inteira, já que o escopo por data saiu da UI principal
+- considerar mostrar data também em `note-item` se isso ajudar contexto sem poluir a tela
+
+### 5) Gestão visual de membros/convites
 Possíveis próximos slices:
 - listar convites ativos
 - revogar convite pela UI
 - listar membros
 - remover membro pela UI
 
-### 5) Ação de visita também em `visits-view`
+### 6) Ação de visita também em `visits-view`
 Pode ainda ser útil adicionar affordance de excluir/sair já na listagem de visitas.
 
 ---
@@ -465,4 +511,4 @@ Observações:
 1. Ler este arquivo.
 2. Rodar smoke test manual focado em colaboração + expiração.
 3. Ver logs do `cleanupExpiredVisitsScheduler` após as primeiras execuções.
-4. Se tudo estiver estável, priorizar refinamentos de UX, principalmente tags, e gestão de membros/convites.
+4. Se tudo estiver estável, priorizar refinamentos de UX, principalmente tags, listagem da visita e gestão de membros/convites.
