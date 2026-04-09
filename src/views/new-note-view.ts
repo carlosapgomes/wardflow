@@ -55,6 +55,7 @@ export class NewNoteView extends LitElement {
   @state() private tags: string[] = [];
   @state() private tagSuggestions: string[] = [];
   @state() private loadingTagSuggestions = false;
+  @state() private noteDate = '';
 
   private tagSuggestionsUserId: string | null = null;
   private tagSuggestionsRequestId = 0;
@@ -76,6 +77,14 @@ export class NewNoteView extends LitElement {
 
   private get isEditMode(): boolean {
     return this.noteId !== null;
+  }
+
+  private formatDateForDisplay(date: string): string {
+    const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return date;
+
+    const [, year, month, day] = match;
+    return `${day}-${month}-${year}`;
   }
 
   protected override createRenderRoot(): HTMLElement {
@@ -163,6 +172,7 @@ export class NewNoteView extends LitElement {
         this.reference = existingNote.reference ?? '';
         this.note = existingNote.note;
         this.tags = existingNote.tags ?? [];
+        this.noteDate = existingNote.date;
 
         // S13C: guardar estado inicial para detectar dirty
         this.initialState = {
@@ -173,6 +183,7 @@ export class NewNoteView extends LitElement {
           tagsInput: '',
         };
       } else {
+        this.noteDate = '';
         this.error = 'Nota não encontrada';
       }
     } catch (err) {
@@ -566,6 +577,14 @@ export class NewNoteView extends LitElement {
       <main class="container-fluid wf-page-container wf-with-header pb-4">
         <div class="card border-0 shadow-sm mb-3">
           <div class="card-body">
+            ${this.isEditMode && this.noteDate
+              ? html`
+                  <div class="small text-secondary mb-3">
+                    Data da nota: ${this.formatDateForDisplay(this.noteDate)}
+                  </div>
+                `
+              : null}
+
             <!-- Tags primeiro (tags-first) -->
             <div class="mb-3">
               <label for="tags" class="form-label">Tags *</label>

@@ -20,17 +20,16 @@ import {
 import { createVisitInviteForVisit, buildVisitInviteLink } from '@/services/db/visit-invites-service';
 import { canEditNote, canDeleteNote, getVisitAccessState, type VisitAccessState } from '@/services/auth/visit-permissions';
 import { getDashboardGroupActions } from '@/services/auth/dashboard-actions-policy';
-import { groupNotesByDateAndTag } from '@/utils/group-notes-by-date-and-tag';
+import { groupNotesByTag } from '@/utils/group-notes-by-tag';
 import { getSyncStatus, subscribeToSync, type SyncStatus } from '@/services/sync/sync-service';
 import { generateMessage, copyToClipboard, type ExportScope } from '@/services/export/message-export';
 import type { Note } from '@/models/note';
 import type { Visit } from '@/models/visit';
 import type { VisitMember } from '@/models/visit-member';
 import type { InviteRole } from '@/models/visit-invite';
-import type { TagGroupData } from '@/components/groups/date-group';
 import type { DashboardAction } from '@/services/auth/dashboard-actions-policy';
 import '../components/base/fab-button';
-import '../components/groups/date-group';
+import '../components/groups/tag-group';
 import '../components/feedback/action-sheet';
 import '../components/feedback/sync-status-bar';
 
@@ -38,7 +37,6 @@ import '../components/feedback/sync-status-bar';
 
 /** Tipo de escopo selecionado */
 type SelectedScope =
-  | { type: 'date'; date: string; tags: TagGroupData[] }
   | { type: 'tag'; tag: string; notes: Note[] }
   | null;
 
@@ -182,24 +180,6 @@ export class DashboardView extends LitElement {
     navigate(`/visita/${this.visitId}/nova-nota`);
   };
 
-  private formatDateForDisplay(date: string): string {
-    const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!match) return date;
-
-    const [, year, month, day] = match;
-    return `${day}-${month}-${year}`;
-  }
-
-  private handleDateAction = (e: CustomEvent<{
-    date: string;
-    tags: TagGroupData[];
-    scopeType: 'date';
-  }>) => {
-    this.selectedScope = { type: 'date', date: e.detail.date, tags: e.detail.tags };
-    this.selectedTitle = this.formatDateForDisplay(e.detail.date);
-    this.isActionSheetOpen = true;
-  };
-
   private handleTagAction = (e: CustomEvent<{
     tag: string;
     notes: Note[];
@@ -236,20 +216,7 @@ export class DashboardView extends LitElement {
   private buildExportScope(): ExportScope | null {
     if (!this.selectedScope) return null;
 
-    // Native export scope by tags (S9A)
-    switch (this.selectedScope.type) {
-      case 'tag':
-        return { type: 'tag', tag: this.selectedScope.tag, notes: this.selectedScope.notes };
-      case 'date':
-        return {
-          type: 'date',
-          date: this.selectedScope.date,
-          tags: this.selectedScope.tags.map(t => ({ tag: t.tag, notes: t.notes })),
-        };
-    }
-
-    // Should never reach here
-    return null;
+    return { type: 'tag', tag: this.selectedScope.tag, notes: this.selectedScope.notes };
   }
 
   private async handleCopyMessage(): Promise<void> {
@@ -312,13 +279,7 @@ export class DashboardView extends LitElement {
 
   private getNoteIdsToDelete(): string[] {
     if (!this.selectedScope) return [];
-
-    if (this.selectedScope.type === 'tag') {
-      return this.selectedScope.notes.map(n => n.id);
-    }
-
-    // Para date, coleta todos os IDs de todas as tags
-    return this.selectedScope.tags.flatMap(t => t.notes.map(n => n.id));
+    return this.selectedScope.notes.map((note) => note.id);
   }
 
   private handleDeleteConfirm = async (): Promise<void> => {
@@ -632,19 +593,15 @@ export class DashboardView extends LitElement {
   }
 
   private renderNotesList() {
-    // Agrupar por data e tag (nova lógica S8A)
-    const groupedNotes = groupNotesByDateAndTag(this.notes);
+    const groupedNotes = groupNotesByTag(this.notes);
 
     return html`
       <div class="d-flex flex-column gap-3" @note-click=${this.handleNoteClick}>
         ${groupedNotes.map(
-          group => html`
-            <date-group
-              .date=${group.date}
-              .tags=${group.tags}
-              @date-action=${this.handleDateAction}
-              @tag-action=${this.handleTagAction}
-            ></date-group>
+          (group) => html`
+            <div class="card border-0 shadow-sm">
+              <tag-group .tag=${group.tag} .notes=${group.notes} @tag-action=${this.handleTagAction}></tag-group>
+            </div>
           `
         )}
       </div>
@@ -789,12 +746,7 @@ export class DashboardView extends LitElement {
     if (!this.isDeleteConfirmOpen) return null;
 
     const count = this.getNoteIdsToDelete().length;
-    let scopeLabel = '';
-    if (this.selectedScope?.type === 'date') {
-      scopeLabel = 'desta data';
-    } else if (this.selectedScope?.type === 'tag') {
-      scopeLabel = 'desta tag';
-    }
+    const scopeLabel = this.selectedScope?.type === 'tag' ? 'desta tag' : '';
 
     return html`
       <div class="modal-backdrop fade show"></div>
