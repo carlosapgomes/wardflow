@@ -8,6 +8,7 @@ import { customElement, state } from 'lit/decorators.js';
 import { liveQuery, type Subscription } from 'dexie';
 import { navigate } from '@/router/router';
 import { createPrivateVisit, getAllVisits } from '@/services/db/visits-service';
+import { getSyncStatus, subscribeToSync, type SyncStatus } from '@/services/sync/sync-service';
 import type { Visit } from '@/models/visit';
 import '../components/base/fab-button';
 import '../components/feedback/sync-status-bar';
@@ -20,8 +21,11 @@ export class VisitsView extends LitElement {
   @state() private error = '';
   @state() private showNameModal = false;
   @state() private visitNameInput = '';
+  @state() private syncStatus: SyncStatus = getSyncStatus();
+  @state() private lastSyncErrorAt: Date | null = null;
 
   private visitsSubscription: Subscription | null = null;
+  private syncStatusUnsubscribe: (() => void) | null = null;
 
   protected override createRenderRoot(): HTMLElement {
     return this;
@@ -30,12 +34,15 @@ export class VisitsView extends LitElement {
   override connectedCallback(): void {
     super.connectedCallback();
     this.startVisitsSubscription();
+    this.startSyncStatusSubscription();
   }
 
   override disconnectedCallback(): void {
     super.disconnectedCallback();
     this.visitsSubscription?.unsubscribe();
     this.visitsSubscription = null;
+    this.syncStatusUnsubscribe?.();
+    this.syncStatusUnsubscribe = null;
   }
 
   private startVisitsSubscription(): void {
@@ -53,6 +60,28 @@ export class VisitsView extends LitElement {
         this.isLoading = false;
       },
     });
+  }
+
+  private startSyncStatusSubscription(): void {
+    this.syncStatusUnsubscribe?.();
+    this.syncStatusUnsubscribe = subscribeToSync((status) => {
+      this.syncStatus = status;
+      if (status.error) {
+        this.lastSyncErrorAt = new Date();
+      }
+    });
+  }
+
+  private isSyncUnstableForEmptyState(): boolean {
+    if (this.syncStatus.isSyncing || Boolean(this.syncStatus.error)) {
+      return true;
+    }
+
+    if (!this.lastSyncErrorAt) {
+      return false;
+    }
+
+    return Date.now() - this.lastSyncErrorAt.getTime() <= 30000;
   }
 
   private handleFabClick = () => {
@@ -155,6 +184,23 @@ export class VisitsView extends LitElement {
     `;
   }
 
+  private renderSyncUnstableEmptyState() {
+    return html`
+      <div class="d-flex align-items-center justify-content-center" style="min-height: 55vh;">
+        <div class="card border-0 shadow-sm text-center w-100" style="max-width: 420px;">
+          <div class="card-body p-4">
+            <svg class="mx-auto text-warning opacity-75 mb-3" width="56" height="56" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4m0 4h.01M10.29 3.86l-7.5 13A1 1 0 003.66 18h16.68a1 1 0 00.87-1.5l-7.5-13a1 1 0 00-1.74 0z" />
+            </svg>
+            <p class="h6 mb-2">Sincronização incompleta</p>
+            <p class="text-secondary mb-3">Conexão instável. Mantendo dados locais enquanto sincronizamos.</p>
+            <div class="small text-secondary border-top pt-3">Estamos tentando reconectar automaticamente</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   private renderVisitsList() {
     return html`
       <div class="d-flex flex-column gap-2">
@@ -195,7 +241,9 @@ export class VisitsView extends LitElement {
           ? html`<div class="d-flex align-items-center justify-content-center text-secondary" style="min-height: 50vh;">Carregando...</div>`
           : this.visits.length > 0
             ? this.renderVisitsList()
-            : this.renderEmptyState()}
+            : this.isSyncUnstableForEmptyState()
+              ? this.renderSyncUnstableEmptyState()
+              : this.renderEmptyState()}
 
         ${this.error
           ? html`<div class="alert alert-danger py-2 px-3 mt-3" role="alert">${this.error}</div>`

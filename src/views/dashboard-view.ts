@@ -21,6 +21,7 @@ import { createVisitInviteForVisit, buildVisitInviteLink } from '@/services/db/v
 import { canEditNote, canDeleteNote, getVisitAccessState, type VisitAccessState } from '@/services/auth/visit-permissions';
 import { getDashboardGroupActions } from '@/services/auth/dashboard-actions-policy';
 import { groupNotesByDateAndTag } from '@/utils/group-notes-by-date-and-tag';
+import { getSyncStatus, subscribeToSync, type SyncStatus } from '@/services/sync/sync-service';
 import { generateMessage, copyToClipboard, type ExportScope } from '@/services/export/message-export';
 import type { Note } from '@/models/note';
 import type { Visit } from '@/models/visit';
@@ -66,8 +67,11 @@ export class DashboardView extends LitElement {
   @state() private inviteRole: InviteRole = 'editor';
   @state() private inviteLink = '';
   @state() private isGeneratingInvite = false;
+  @state() private syncStatus: SyncStatus = getSyncStatus();
+  @state() private lastSyncErrorAt: Date | null = null;
 
   private notesSubscription: Subscription | null = null;
+  private syncStatusUnsubscribe: (() => void) | null = null;
 
   protected override createRenderRoot(): HTMLElement {
     return this;
@@ -84,6 +88,7 @@ export class DashboardView extends LitElement {
     }
 
     this.startNotesSubscription();
+    this.startSyncStatusSubscription();
   }
 
   // S12A: loadVisitName removido - título fixo do app
@@ -121,6 +126,8 @@ export class DashboardView extends LitElement {
     super.disconnectedCallback();
     this.notesSubscription?.unsubscribe();
     this.notesSubscription = null;
+    this.syncStatusUnsubscribe?.();
+    this.syncStatusUnsubscribe = null;
   }
 
   private startNotesSubscription(): void {
@@ -146,6 +153,28 @@ export class DashboardView extends LitElement {
         this.isLoading = false;
       },
     });
+  }
+
+  private startSyncStatusSubscription(): void {
+    this.syncStatusUnsubscribe?.();
+    this.syncStatusUnsubscribe = subscribeToSync((status) => {
+      this.syncStatus = status;
+      if (status.error) {
+        this.lastSyncErrorAt = new Date();
+      }
+    });
+  }
+
+  private isSyncUnstableForEmptyState(): boolean {
+    if (this.syncStatus.isSyncing || Boolean(this.syncStatus.error)) {
+      return true;
+    }
+
+    if (!this.lastSyncErrorAt) {
+      return false;
+    }
+
+    return Date.now() - this.lastSyncErrorAt.getTime() <= 30000;
   }
 
   private handleFabClick = () => {
@@ -585,6 +614,23 @@ export class DashboardView extends LitElement {
     `;
   }
 
+  private renderSyncUnstableEmptyState() {
+    return html`
+      <div class="d-flex align-items-center justify-content-center" style="min-height: 55vh;">
+        <div class="card border-0 shadow-sm text-center w-100" style="max-width: 420px;">
+          <div class="card-body p-4">
+            <svg class="mx-auto text-warning opacity-75 mb-3" width="56" height="56" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4m0 4h.01M10.29 3.86l-7.5 13A1 1 0 003.66 18h16.68a1 1 0 00.87-1.5l-7.5-13a1 1 0 00-1.74 0z" />
+            </svg>
+            <p class="h6 mb-2">Sincronização incompleta</p>
+            <p class="text-secondary mb-3">Conexão instável. Mantendo dados locais enquanto sincronizamos.</p>
+            <div class="small text-secondary border-top pt-3">Tentando reconectar e atualizar esta visita</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   private renderNotesList() {
     // Agrupar por data e tag (nova lógica S8A)
     const groupedNotes = groupNotesByDateAndTag(this.notes);
@@ -653,7 +699,9 @@ export class DashboardView extends LitElement {
           ? html`<div class="d-flex align-items-center justify-content-center text-secondary" style="min-height: 50vh;">Carregando...</div>`
           : this.notes.length > 0
             ? this.renderNotesList()
-            : this.renderEmptyState()}
+            : this.isSyncUnstableForEmptyState()
+              ? this.renderSyncUnstableEmptyState()
+              : this.renderEmptyState()}
       </main>
 
       ${this.canUserEditNote()

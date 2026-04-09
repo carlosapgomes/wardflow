@@ -940,6 +940,69 @@ describe('sync-service - pullRemoteVisitMembershipsAndVisits', () => {
     expect(mockedDb.visits.put).toHaveBeenCalledWith(expect.objectContaining({ id: 'visit-2' }));
   });
 
+  it('não remove visita órfã local quando ausência remota é ambígua', async () => {
+    setupDefaults();
+
+    mockedDb.visitMembers.where.mockImplementationOnce(() => ({
+      equals: vi.fn(() => ({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: 'visit-1:user-123',
+            visitId: 'visit-1',
+            userId: 'user-123',
+            role: 'owner',
+            status: 'active',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+          {
+            id: 'visit-orphan:user-123',
+            visitId: 'visit-orphan',
+            userId: 'user-123',
+            role: 'viewer',
+            status: 'active',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ]),
+      })),
+    }));
+
+    mockedGetDocs.mockResolvedValue({
+      empty: false,
+      docs: [
+        {
+          id: 'user-123',
+          data: () => ({
+            id: 'visit-1:user-123',
+            visitId: 'visit-1',
+            userId: 'user-123',
+            role: 'owner',
+            status: 'active',
+            createdAt: '2026-04-01T10:00:00.000Z',
+          }),
+        },
+      ],
+    } as Awaited<ReturnType<typeof getDocs>>);
+
+    mockedGetDoc.mockResolvedValue({
+      exists: () => true,
+      data: () => ({
+        id: 'visit-1',
+        userId: 'user-123',
+        name: 'Visita 01-04-2026 privada',
+        date: '2026-04-01',
+        mode: 'private',
+        createdAt: '2026-04-01T10:00:00.000Z',
+      }),
+    } as Awaited<ReturnType<typeof getDoc>>);
+
+    await syncService.pullRemoteVisitMembershipsAndVisits();
+
+    expect(mockedDb.visits.delete).not.toHaveBeenCalledWith('visit-orphan');
+    expect(mockedDb.visits.put).toHaveBeenCalledWith(expect.objectContaining({ id: 'visit-1' }));
+  });
+
   it('remove dados locais completos quando membership remoto está removed', async () => {
     setupDefaults();
 
@@ -1101,6 +1164,85 @@ describe('sync-service - pullRemoteNotes', () => {
         }),
       ])
     );
+    expect(mockedTriggerCurrentUserTagStatsRebuild).toHaveBeenCalledTimes(1);
+  });
+
+  it('não remove órfãs locais quando pull por visita é parcial', async () => {
+    vi.clearAllMocks();
+
+    const mockedDb = db as unknown as {
+      notes: {
+        get: ReturnType<typeof vi.fn>;
+        bulkPut: ReturnType<typeof vi.fn>;
+        where: ReturnType<typeof vi.fn>;
+        bulkDelete: ReturnType<typeof vi.fn>;
+      };
+      visitMembers: {
+        where: ReturnType<typeof vi.fn>;
+      };
+    };
+
+    mockedGetAuthState.mockReturnValue({
+      user: { uid: 'user-123' } as ReturnType<typeof getAuthState>['user'],
+      loading: false,
+      error: null,
+    });
+    mockedGetFirebaseFirestore.mockReturnValue({} as ReturnType<typeof getFirebaseFirestore>);
+
+    mockedDb.notes.get.mockResolvedValue(undefined);
+
+    mockedDb.visitMembers.where.mockImplementationOnce(() => ({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: 'visit-1:user-123',
+          visitId: 'visit-1',
+          userId: 'user-123',
+          role: 'owner',
+          status: 'active',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        {
+          id: 'visit-2:user-123',
+          visitId: 'visit-2',
+          userId: 'user-123',
+          role: 'owner',
+          status: 'active',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ]),
+    }));
+
+    mockedGetDocs
+      .mockResolvedValueOnce({ docs: [], empty: true } as unknown as Awaited<ReturnType<typeof getDocs>>) // legado
+      .mockResolvedValueOnce({
+        docs: [
+          {
+            id: 'note-visit-1',
+            data: () => ({
+              visitId: 'visit-1',
+              date: '2026-04-08',
+              bed: '01',
+              note: 'Nota remota da visita 1',
+              tags: ['UTI'],
+              createdAt: '2026-04-08T10:00:00.000Z',
+              expiresAt: '2026-04-22T10:00:00.000Z',
+            }),
+          },
+        ],
+      } as Awaited<ReturnType<typeof getDocs>>) // visit-1
+      .mockRejectedValueOnce(new Error('timeout visit-2')); // visit-2 falha
+
+    await syncService.pullRemoteNotes();
+
+    expect(mockedDb.notes.bulkPut).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'note-visit-1' }),
+      ])
+    );
+    expect(mockedDb.notes.where).not.toHaveBeenCalled();
+    expect(mockedDb.notes.bulkDelete).not.toHaveBeenCalled();
     expect(mockedTriggerCurrentUserTagStatsRebuild).toHaveBeenCalledTimes(1);
   });
 });

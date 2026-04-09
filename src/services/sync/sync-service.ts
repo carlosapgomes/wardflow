@@ -1029,15 +1029,21 @@ export function deduplicateNotes(notes: Note[]): Note[] {
  * Pull inicial de notas remotas do Firestore para IndexedDB
  * Hidrata dados locais no login usando notas já existentes na nuvem
  */
+interface PullNotesFromVisitsResult {
+  notes: Note[];
+  failedVisitIds: string[];
+}
+
 /**
  * Busca notas de /visits/{visitId}/notes para memberships locais ativos
  */
 async function pullNotesFromVisits(
   firestore: Firestore,
   userId: string
-): Promise<Note[]> {
+): Promise<PullNotesFromVisitsResult> {
   const activeMemberships = await getActiveMemberships(userId);
   const allNotes: Note[] = [];
+  const failedVisitIds: string[] = [];
 
   for (const membership of activeMemberships) {
     try {
@@ -1054,11 +1060,15 @@ async function pullNotesFromVisits(
         allNotes.push(resolvedNote);
       }
     } catch (error) {
+      failedVisitIds.push(membership.visitId);
       console.warn(`[VisitaMed] Pull de notas da visita ${membership.visitId} falhou:`, error);
     }
   }
 
-  return allNotes;
+  return {
+    notes: allNotes,
+    failedVisitIds,
+  };
 }
 
 export async function pullRemoteNotes(): Promise<void> {
@@ -1119,7 +1129,15 @@ export async function pullRemoteNotes(): Promise<void> {
     }
 
     // === PULL POR VISITA: /visits/{visitId}/notes ===
-    const visitNotes = await pullNotesFromVisits(firestore, user.uid);
+    const visitPullResult = await pullNotesFromVisits(firestore, user.uid);
+    const visitNotes = visitPullResult.notes;
+    const hasPartialVisitPull = visitPullResult.failedVisitIds.length > 0;
+
+    if (hasPartialVisitPull) {
+      console.warn(
+        `[VisitaMed] Pull de notas parcial: ${String(visitPullResult.failedVisitIds.length)} visita(s) com falha (${visitPullResult.failedVisitIds.join(', ')}).`
+      );
+    }
 
     // === DEDUPLICAR NOTAS REMOTAS ===
     const allRemoteNotes = [...legacyNotes, ...visitNotes];
@@ -1133,22 +1151,29 @@ export async function pullRemoteNotes(): Promise<void> {
 
     // Reconciliação: remover localmente notas órfãs (deletadas remotamente)
     // Só remove notas com syncStatus 'synced' para não perder alterações locais pendentes
-    const remoteIds = new Set(notesToUpsert.map((n) => n.id));
-    const localSyncedNotes = await db.notes
-      .where({ userId: user.uid, syncStatus: 'synced' })
-      .toArray();
+    // Hardening: em pull parcial por visita, não executar cleanup destrutivo neste ciclo.
+    if (hasPartialVisitPull) {
+      console.warn(
+        '[VisitaMed] Pulando cleanup de notas órfãs neste ciclo por pull remoto parcial/incompleto'
+      );
+    } else {
+      const remoteIds = new Set(notesToUpsert.map((n) => n.id));
+      const localSyncedNotes = await db.notes
+        .where({ userId: user.uid, syncStatus: 'synced' })
+        .toArray();
 
-    const orphanedIds: string[] = [];
-    for (const localNote of localSyncedNotes) {
-      if (!remoteIds.has(localNote.id)) {
-        orphanedIds.push(localNote.id);
+      const orphanedIds: string[] = [];
+      for (const localNote of localSyncedNotes) {
+        if (!remoteIds.has(localNote.id)) {
+          orphanedIds.push(localNote.id);
+        }
       }
-    }
 
-    if (orphanedIds.length > 0) {
-      await db.notes.bulkDelete(orphanedIds);
-      hasRelevantLocalNoteChange = true;
-      console.log(`[VisitaMed] ${String(orphanedIds.length)} notas órfãs removidas localmente`);
+      if (orphanedIds.length > 0) {
+        await db.notes.bulkDelete(orphanedIds);
+        hasRelevantLocalNoteChange = true;
+        console.log(`[VisitaMed] ${String(orphanedIds.length)} notas órfãs removidas localmente`);
+      }
     }
 
     if (hasRelevantLocalNoteChange) {
@@ -1159,8 +1184,9 @@ export async function pullRemoteNotes(): Promise<void> {
     const visitCount = visitNotes.length;
     const uniqueCount = notesToUpsert.length;
     const deduplicationStatus = uniqueCount < legacyCount + visitCount ? 'deduplicadas' : 'únicas';
+    const pullMode = hasPartialVisitPull ? 'parcial' : 'completo';
     console.log(
-      `[VisaMed] Pull concluído: ${String(uniqueCount)} notas (${String(legacyCount)} legacy + ${String(visitCount)} visitas, ${deduplicationStatus})`
+      `[VisitaMed] Pull ${pullMode} concluído: ${String(uniqueCount)} notas (${String(legacyCount)} legacy + ${String(visitCount)} visitas, ${deduplicationStatus})`
     );
   } catch (error) {
     pullError = error instanceof Error ? error.message : 'Erro no pull de notas remotas';
@@ -1577,10 +1603,21 @@ export async function pullRemoteVisitMembershipsAndVisits(): Promise<void> {
       remoteMemberships: remoteMembers,
     });
 
-    const visitIdsToClean = new Set<string>([
-      ...reconciliation.removedVisitIds,
-      ...reconciliation.orphanedVisitIds,
-    ]);
+    const visitIdsToClean = new Set<string>(reconciliation.removedVisitIds);
+
+    if (reconciliation.removedVisitIds.length > 0) {
+      console.log(
+        `[VisitaMed] Remoção confirmada por membership remoto: ${String(reconciliation.removedVisitIds.length)} visita(s)`
+      );
+    }
+
+    if (reconciliation.orphanedVisitIds.length > 0) {
+      console.warn(
+        `[VisitaMed] Ausência remota ambígua para ${String(reconciliation.orphanedVisitIds.length)} visita(s) órfã(s) (${reconciliation.orphanedVisitIds.join(', ')}). Cleanup local adiado neste ciclo.`
+      );
+    }
+
+    const failedActiveVisitFetchIds: string[] = [];
 
     for (const visitId of reconciliation.activeVisitIds) {
       try {
@@ -1589,6 +1626,9 @@ export async function pullRemoteVisitMembershipsAndVisits(): Promise<void> {
 
         if (!visitSnap.exists()) {
           visitIdsToClean.add(visitId);
+          console.warn(
+            `[VisitaMed] Visita ${visitId} não encontrada após fetch remoto bem-sucedido. Marcando limpeza local confirmada.`
+          );
           continue;
         }
 
@@ -1597,8 +1637,15 @@ export async function pullRemoteVisitMembershipsAndVisits(): Promise<void> {
         await db.visits.put(visit);
         hasRelevantAccessChange = true;
       } catch (visitError) {
+        failedActiveVisitFetchIds.push(visitId);
         console.warn(`[VisitaMed] Erro ao hidratar visita ${visitId}:`, visitError);
       }
+    }
+
+    if (failedActiveVisitFetchIds.length > 0) {
+      console.warn(
+        `[VisitaMed] Pull de visitas incompleto: ${String(failedActiveVisitFetchIds.length)} visita(s) ativa(s) sem hidratação (${failedActiveVisitFetchIds.join(', ')}).`
+      );
     }
 
     for (const visitId of visitIdsToClean) {
