@@ -1054,7 +1054,7 @@ async function pullNotesFromVisits(
         const data = docSnap.data() as FirestoreNoteData;
         const remoteNote = convertFirestoreNoteToLocal(docSnap.id, data, userId);
 
-        // Aplicar mesma política de conflito usada no pull legado
+        // Aplicar política de resolução de conflito local x remoto (LWW)
         const localNote = await db.notes.get(docSnap.id);
         const resolvedNote = resolveNoteConflict(localNote, remoteNote);
         allNotes.push(resolvedNote);
@@ -1098,37 +1098,7 @@ export async function pullRemoteNotes(): Promise<void> {
   let pullError: string | null = null;
 
   try {
-    // === PULL LEGADO: /users/{uid}/notes ===
-    const notesCollection = collection(firestore, 'users', user.uid, 'notes');
-    const notesSnapshot = await getDocs(notesCollection);
-
-    const legacyNotes: Note[] = [];
-
-    for (const docSnap of notesSnapshot.docs) {
-      const data = docSnap.data() as FirestoreNoteData;
-      const remoteNote = convertFirestoreNoteToLocal(docSnap.id, data, user.uid);
-
-      // Buscar nota local existente
-      const localNote = await db.notes.get(docSnap.id);
-
-      // Aplicar política de resolução de conflito
-      const resolvedNote = resolveNoteConflict(localNote, remoteNote);
-
-      // Log de debug apenas quando há conflito real
-      if (localNote && localNote.syncStatus !== 'pending' && localNote.syncStatus !== 'failed') {
-        const localVersion = getNoteTimestamp(localNote);
-        const remoteVersion = getNoteTimestamp(remoteNote);
-        if (remoteVersion > localVersion) {
-          console.debug(`[VisitaMed] Conflito resolvido (remote wins): ${docSnap.id}`);
-        } else if (localVersion > remoteVersion) {
-          console.debug(`[VisitaMed] Conflito resolvido (local wins): ${docSnap.id}`);
-        }
-      }
-
-      legacyNotes.push(resolvedNote);
-    }
-
-    // === PULL POR VISITA: /visits/{visitId}/notes ===
+    // Fonte única remota de notas: /visits/{visitId}/notes
     const visitPullResult = await pullNotesFromVisits(firestore, user.uid);
     const visitNotes = visitPullResult.notes;
     const hasPartialVisitPull = visitPullResult.failedVisitIds.length > 0;
@@ -1139,12 +1109,9 @@ export async function pullRemoteNotes(): Promise<void> {
       );
     }
 
-    // === DEDUPLICAR NOTAS REMOTAS ===
-    const allRemoteNotes = [...legacyNotes, ...visitNotes];
-    const deduplicatedNotes = deduplicateNotes(allRemoteNotes);
-    const notesToUpsert = deduplicatedNotes;
+    const notesToUpsert = deduplicateNotes(visitNotes);
 
-    // Upsert into IndexedDB com notas resolvidas e deduplicadas
+    // Upsert local com notas vindas das visitas acessíveis
     await db.notes.bulkPut(notesToUpsert);
 
     let hasRelevantLocalNoteChange = notesToUpsert.length > 0;
@@ -1180,13 +1147,12 @@ export async function pullRemoteNotes(): Promise<void> {
       triggerCurrentUserTagStatsRebuild();
     }
 
-    const legacyCount = legacyNotes.length;
     const visitCount = visitNotes.length;
     const uniqueCount = notesToUpsert.length;
-    const deduplicationStatus = uniqueCount < legacyCount + visitCount ? 'deduplicadas' : 'únicas';
+    const deduplicationStatus = uniqueCount < visitCount ? 'deduplicadas' : 'únicas';
     const pullMode = hasPartialVisitPull ? 'parcial' : 'completo';
     console.log(
-      `[VisitaMed] Pull ${pullMode} concluído: ${String(uniqueCount)} notas (${String(legacyCount)} legacy + ${String(visitCount)} visitas, ${deduplicationStatus})`
+      `[VisitaMed] Pull ${pullMode} concluído: ${String(uniqueCount)} notas de visitas acessíveis (${String(visitCount)} recebidas, ${deduplicationStatus})`
     );
   } catch (error) {
     pullError = error instanceof Error ? error.message : 'Erro no pull de notas remotas';

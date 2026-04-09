@@ -103,7 +103,7 @@ import { type SyncQueueItem } from '@/models/sync-queue';
 import { getAuthState } from '@/services/auth/auth-service';
 import { getFirebaseFirestore } from '@/services/auth/firebase';
 import { db } from '@/services/db/dexie-db';
-import { collectionGroup, query, where, getDocs, doc, getDoc, setDoc } from 'firebase/firestore';
+import { collection, collectionGroup, query, where, getDocs, doc, getDoc, setDoc } from 'firebase/firestore';
 import { triggerCurrentUserTagStatsRebuild } from '@/services/db/user-tag-stats-service';
 
 // Removido: FirestoreWardStatData (tags-first)
@@ -1104,33 +1104,49 @@ describe('sync-service - pullRemoteVisitMembershipsAndVisits', () => {
 describe('sync-service - pullRemoteNotes', () => {
   const mockedGetAuthState = vi.mocked(getAuthState);
   const mockedGetFirebaseFirestore = vi.mocked(getFirebaseFirestore);
+  const mockedCollection = vi.mocked(collection);
   const mockedGetDocs = vi.mocked(getDocs);
   const mockedTriggerCurrentUserTagStatsRebuild = vi.mocked(triggerCurrentUserTagStatsRebuild);
 
-  it('dispara rebuild best-effort após hidratar notas remotas', async () => {
-    vi.clearAllMocks();
-
-    const mockedDb = db as unknown as {
-      notes: {
-        get: ReturnType<typeof vi.fn>;
-        bulkPut: ReturnType<typeof vi.fn>;
-        where: ReturnType<typeof vi.fn>;
-        bulkDelete: ReturnType<typeof vi.fn>;
-      };
-      visitMembers: {
-        where: ReturnType<typeof vi.fn>;
-      };
+  const mockedDb = db as unknown as {
+    notes: {
+      get: ReturnType<typeof vi.fn>;
+      bulkPut: ReturnType<typeof vi.fn>;
+      where: ReturnType<typeof vi.fn>;
+      bulkDelete: ReturnType<typeof vi.fn>;
     };
+    visitMembers: {
+      where: ReturnType<typeof vi.fn>;
+    };
+  };
 
+  function setupAuthenticatedUser(): void {
     mockedGetAuthState.mockReturnValue({
       user: { uid: 'user-123' } as ReturnType<typeof getAuthState>['user'],
       loading: false,
       error: null,
     });
     mockedGetFirebaseFirestore.mockReturnValue({} as ReturnType<typeof getFirebaseFirestore>);
+  }
+
+  it('hidrata notas apenas das visitas acessíveis (sem pull legado em /users/{uid}/notes)', async () => {
+    vi.clearAllMocks();
+    setupAuthenticatedUser();
+
+    mockedDb.notes.get.mockResolvedValue(undefined);
 
     mockedDb.visitMembers.where.mockImplementationOnce(() => ({
-      toArray: vi.fn().mockResolvedValue([]),
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: 'visit-1:user-123',
+          visitId: 'visit-1',
+          userId: 'user-123',
+          role: 'owner',
+          status: 'active',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ]),
     }));
 
     mockedDb.notes.where.mockImplementationOnce(() => ({
@@ -1140,12 +1156,12 @@ describe('sync-service - pullRemoteNotes', () => {
     mockedGetDocs.mockResolvedValueOnce({
       docs: [
         {
-          id: 'note-remote-1',
+          id: 'note-visit-1',
           data: () => ({
             visitId: 'visit-1',
             date: '2026-04-08',
             bed: '01',
-            note: 'Nota remota',
+            note: 'Nota remota da visita 1',
             tags: ['UTI'],
             createdAt: '2026-04-08T10:00:00.000Z',
             expiresAt: '2026-04-22T10:00:00.000Z',
@@ -1156,10 +1172,12 @@ describe('sync-service - pullRemoteNotes', () => {
 
     await syncService.pullRemoteNotes();
 
+    expect(mockedCollection).toHaveBeenCalledWith(expect.anything(), 'visits', 'visit-1', 'notes');
+    expect(mockedCollection).not.toHaveBeenCalledWith(expect.anything(), 'users', 'user-123', 'notes');
     expect(mockedDb.notes.bulkPut).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.objectContaining({
-          id: 'note-remote-1',
+          id: 'note-visit-1',
           tags: ['UTI'],
         }),
       ])
@@ -1167,27 +1185,62 @@ describe('sync-service - pullRemoteNotes', () => {
     expect(mockedTriggerCurrentUserTagStatsRebuild).toHaveBeenCalledTimes(1);
   });
 
+  it('remove nota local synced órfã quando pull por visita é completo', async () => {
+    vi.clearAllMocks();
+    setupAuthenticatedUser();
+
+    mockedDb.notes.get.mockResolvedValue(undefined);
+
+    mockedDb.visitMembers.where.mockImplementationOnce(() => ({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: 'visit-1:user-123',
+          visitId: 'visit-1',
+          userId: 'user-123',
+          role: 'owner',
+          status: 'active',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ]),
+    }));
+
+    mockedDb.notes.where.mockImplementationOnce(() => ({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: 'note-orphan',
+          userId: 'user-123',
+          syncStatus: 'synced',
+        },
+      ]),
+    }));
+
+    mockedGetDocs.mockResolvedValueOnce({
+      docs: [
+        {
+          id: 'note-visit-1',
+          data: () => ({
+            visitId: 'visit-1',
+            date: '2026-04-08',
+            bed: '01',
+            note: 'Nota remota da visita 1',
+            tags: ['UTI'],
+            createdAt: '2026-04-08T10:00:00.000Z',
+            expiresAt: '2026-04-22T10:00:00.000Z',
+          }),
+        },
+      ],
+    } as Awaited<ReturnType<typeof getDocs>>);
+
+    await syncService.pullRemoteNotes();
+
+    expect(mockedDb.notes.bulkDelete).toHaveBeenCalledWith(['note-orphan']);
+    expect(mockedTriggerCurrentUserTagStatsRebuild).toHaveBeenCalledTimes(1);
+  });
+
   it('não remove órfãs locais quando pull por visita é parcial', async () => {
     vi.clearAllMocks();
-
-    const mockedDb = db as unknown as {
-      notes: {
-        get: ReturnType<typeof vi.fn>;
-        bulkPut: ReturnType<typeof vi.fn>;
-        where: ReturnType<typeof vi.fn>;
-        bulkDelete: ReturnType<typeof vi.fn>;
-      };
-      visitMembers: {
-        where: ReturnType<typeof vi.fn>;
-      };
-    };
-
-    mockedGetAuthState.mockReturnValue({
-      user: { uid: 'user-123' } as ReturnType<typeof getAuthState>['user'],
-      loading: false,
-      error: null,
-    });
-    mockedGetFirebaseFirestore.mockReturnValue({} as ReturnType<typeof getFirebaseFirestore>);
+    setupAuthenticatedUser();
 
     mockedDb.notes.get.mockResolvedValue(undefined);
 
@@ -1215,7 +1268,6 @@ describe('sync-service - pullRemoteNotes', () => {
     }));
 
     mockedGetDocs
-      .mockResolvedValueOnce({ docs: [], empty: true } as unknown as Awaited<ReturnType<typeof getDocs>>) // legado
       .mockResolvedValueOnce({
         docs: [
           {
