@@ -32,7 +32,7 @@ Além disso, a feature de **sugestões locais de tags por usuário** já está i
 
 Além disso, o sync passou por um hardening recente para evitar limpeza destrutiva local sob falha parcial de rede.
 
-No momento, o projeto está em estado mais consistente para colaboração + lifecycle de visitas transitórias, com preenchimento de tags mais assistido, **com a refatoração do legado de notas concluída em código + limpeza remota executada no projeto Firebase**, e com a refatoração de naming de visitas em andamento (slices 1–3 concluídos localmente).
+No momento, o projeto está em estado mais consistente para colaboração + lifecycle de visitas transitórias, com preenchimento de tags mais assistido, **com a refatoração do legado de notas concluída em código + limpeza remota executada no projeto Firebase**, e com a refatoração de naming de visitas + UX de ações lentas já implementadas e publicadas em hosting.
 
 ---
 
@@ -184,11 +184,13 @@ Estado atual:
 - `7d1f8f3` docs(sync): align legacy notes refactor status
 
 ### Refatoração de naming de visitas
-- Slice 1 local: novas visitas deixam de persistir data/mode no `name`
-- Slice 2 local: nomes legados são normalizados ao compartilhar (`ensureVisitIsGroup`)
-- Slice 3 local: `visits-view` exibe badge de modo (`Privada` / `Compartilhada`)
+- `bec4e66` fix(visit): clean naming and show mode badge
+- Slice 1: novas visitas deixam de persistir data/mode no `name`
+- Slice 2: nomes legados são normalizados ao compartilhar (`ensureVisitIsGroup`)
+- Slice 3: `visits-view` exibe badge de modo (`Privada` / `Compartilhada`)
 
 ### UX recente de ações de visita
+- `71e7efd` fix(ux): show processing state for visit actions
 - `dashboard-view` exibe spinner/estado de processamento em excluir visita e sair da visita
 - em caso de erro, o modal permanece aberto com mensagem inline e affordance de retry
 
@@ -402,18 +404,17 @@ Status:
 - Slice 1 concluído: app não faz mais pull legado de notas por usuário
 - Slice 2 concluído: app não escreve mais notas de visita no path legado
 - Slice 3 concluído: script de auditoria/cleanup remoto disponível para execução controlada
+- Slice 4 concluído: resíduos de comentários/docs correntes alinhados
+- auditoria real no projeto Firebase executada com sucesso
+- cleanup seletivo remoto executado com sucesso (`37` docs legados apagados)
 
-Direção operacional agora:
-1. rodar auditoria real (dry-run) no projeto Firebase
-2. validar volume e amostras do relatório
-3. executar cleanup seletivo com `--apply`
-4. manter monitoramento de sync após limpeza
+Resultado operacional:
+- o path legado `/users/{uid}/notes` deixou de ser usado pelo app e já foi limpo no projeto `visitamed-36570`
+- não houve necessidade de wipe completo do Firestore
 
-Próximo slice técnico opcional:
-- limpeza residual pequena de comentários/docs correntes (sem reescrever histórico)
-
-Recomendação mantida:
-- **não apagar todo o Firestore**; apagar apenas os registros legados de notas após auditoria
+Próximo foco:
+- smoke tests de colaboração/sync após cleanup
+- monitoramento de comportamento compartilhado em uso real
 
 ---
 
@@ -430,7 +431,7 @@ Resultados importantes:
 - `cleanupExpiredVisitsScheduler(southamerica-east1)` criado com sucesso
 - `deriveVisitExpirationFromNotes(southamerica-east1)` criado com sucesso
 - hosting publicado/atualizado em `https://visitamed-36570.web.app`
-- fixes recentes de sync confiável e listagem da visita já estão publicados em hosting
+- fixes recentes de sync confiável, listagem da visita, naming de visitas e UX de ações lentas já estão publicados em hosting
 
 ### APIs / serviços habilitados no projeto
 Durante o deploy do scheduler, o Firebase habilitou:
@@ -648,6 +649,6 @@ Observações:
 
 1. Ler este arquivo.
 2. Considerar concluída a refatoração do legado de notas em código e a limpeza remota já executada no projeto Firebase.
-3. Retomar pelos smoke tests manuais de colaboração/naming de visitas e pelo acompanhamento de sync compartilhado.
-4. Não fazer wipe completo do Firestore; o cleanup seletivo do legado de notas já foi executado com sucesso.
-5. Se a UI de naming estiver estável, priorizar próximos refinamentos funcionais menores.
+3. Considerar concluída também a refatoração de naming de visitas e a UX de processamento/erro em excluir-sair visita.
+4. Retomar pelos smoke tests manuais de colaboração, naming de visitas e acompanhamento de sync compartilhado.
+5. Não fazer wipe completo do Firestore; o cleanup seletivo do legado de notas já foi executado com sucesso.
