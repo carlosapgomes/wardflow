@@ -633,7 +633,7 @@ async function cleanupExpiredVisit(visitId: string): Promise<number> {
 
 /**
  * Scheduler global de cleanup de visitas expiradas.
- * Remove visita + subcoleções + mirrors legados em /users/{uid}/notes.
+ * Remove visita + subcoleções e também quaisquer notas remotas ainda vinculadas ao visitId.
  */
 export const cleanupExpiredVisitsScheduler = onSchedule(
   {

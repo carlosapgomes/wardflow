@@ -1129,7 +1129,7 @@ describe('sync-service - pullRemoteNotes', () => {
     mockedGetFirebaseFirestore.mockReturnValue({} as ReturnType<typeof getFirebaseFirestore>);
   }
 
-  it('hidrata notas apenas das visitas acessíveis (sem pull legado em /users/{uid}/notes)', async () => {
+  it('hidrata notas apenas das visitas acessíveis (sem usar o path legado de usuário)', async () => {
     vi.clearAllMocks();
     setupAuthenticatedUser();
 
@@ -1705,7 +1705,7 @@ describe('sync-service - syncNow push primário de notas em visitas', () => {
     mockedDb.syncQueue.update.mockResolvedValue(undefined);
   }
 
-  it('note:create escreve em /visits/{visitId}/notes/{noteId} e não em /users/{uid}/notes', async () => {
+  it('note:create escreve no path principal da visita e não usa o path legado de usuário', async () => {
     setupSyncNowForSingleNoteOperation('create');
 
     await syncService.syncNow();

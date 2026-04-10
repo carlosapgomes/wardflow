@@ -30,7 +30,9 @@ Além disso, a feature de **sugestões locais de tags por usuário** já está i
 2. UI em `new-note-view` com top tags + filtro por prefixo
 3. rebuild automático best-effort após eventos locais/remotos relevantes
 
-No momento, o projeto está em estado bem mais consistente para colaboração + lifecycle de visitas transitórias, com preenchimento de tags também mais assistido.
+Além disso, o sync passou por um hardening recente para evitar limpeza destrutiva local sob falha parcial de rede.
+
+No momento, o projeto está em estado mais consistente para colaboração + lifecycle de visitas transitórias, com preenchimento de tags mais assistido **e com a refatoração principal do legado de notas já avançada (slices 1–3 concluídos)**. O próximo passo operacional é rodar auditoria real + cleanup seletivo no Firebase do projeto.
 
 ---
 
@@ -103,6 +105,27 @@ Estado atual:
 - `note.date` continua existindo como metadado
 - em `new-note-view`, no modo edição, a data da nota aparece de forma discreta como informação contextual
 
+### 8) Hardening recente do sync sob rede oscilante
+Estado atual:
+- `pullRemoteNotes()` ficou mais conservador sob pull parcial/incompleto
+- se falhar o fetch remoto de alguma visita, o app ainda aproveita o que chegou, mas **não faz cleanup destrutivo de órfãs naquele ciclo**
+- `pullRemoteVisitMembershipsAndVisits()` ficou mais conservador para ausência ambígua:
+  - continua limpando sinais fortes/confirmados
+  - não faz mais purge imediato de `orphanedVisitIds` por evidência fraca
+- `visits-view` e `dashboard-view` mostram estado mais conservador sob sync instável, em vez de empty state absoluto enganoso
+
+### 9) Status do legado de notas após slices 1–3
+Estado atual:
+- pull legado em `/users/{uid}/notes` removido
+- escrita legada em `/users/{uid}/notes` removida
+- script administrativo de auditoria/cleanup criado em `functions/src/scripts/legacy-user-notes-cleanup.ts`
+- fonte remota ativa para notas de visita consolidada em `/visits/{visitId}/notes/{noteId}`
+
+Próximo passo operacional:
+- executar auditoria real no projeto Firebase
+- revisar o relatório
+- executar cleanup seletivo com `--apply` somente após validação do dry-run
+
 ---
 
 ## Commits relevantes mais recentes
@@ -118,8 +141,19 @@ Estado atual:
 - `eab8a46` feat(tags): add local tag suggestions to note form
 - `c2b0e54` feat(tags): add local user tag suggestion stats
 
-### Listagem da visita
+### Confiabilidade do sync / listagem da visita
+- `f8f1c27` fix(sync): avoid destructive local cleanup on partial pull
 - `556a050` fix(visit): stop grouping notes by note date
+
+### Refatoração do legado de notas (slices 1–3)
+- `c77b629` refactor(sync): stop pulling legacy user notes
+- `82be003` refactor(sync): write visit notes to visit path
+- `c23c742` chore(sync): add legacy user notes cleanup script
+
+### Documentação recente
+- `e1b1c94` docs(handoff): update visit note grouping behavior
+- `57bd5bf` docs(handoff): add tag suggestions slices
+- `a34e444` docs(handoff): update context with remote visit expiry trigger
 
 ### Colaboração / convites
 - `97846dc` fix(collab): harden leave flow and invite accept hydration
@@ -207,7 +241,7 @@ Resumo:
 - remove globalmente:
   - `/visits/{visitId}`
   - subcoleções (`members`, `invites`, `notes`)
-  - mirrors legados em `/users/{uid}/notes` via `collectionGroup('notes').where('visitId', '==', visitId)`
+  - documentos de notas ainda vinculados ao `visitId` via `collectionGroup('notes').where('visitId', '==', visitId)`
 - usa `recursiveDelete(visitRef)` para limpeza da árvore da visita
 - logs básicos de execução/resumo
 
@@ -308,6 +342,37 @@ Resumo:
 - `note.date` permanece no modelo, mas vira metadado
 - em modo de edição, `new-note-view` mostra `Data da nota: dd-mm-aaaa`
 
+### L) Confiabilidade do sync — evitar limpeza destrutiva sob pull parcial
+Arquivos principais:
+- `src/services/sync/sync-service.ts`
+- `src/services/sync/sync-service.test.ts`
+- `src/views/visits-view.ts`
+- `src/views/dashboard-view.ts`
+
+Resumo:
+- `pullRemoteNotes()` detecta pull parcial por visita e pula cleanup destrutivo de órfãs nesse ciclo
+- `pullRemoteVisitMembershipsAndVisits()` não faz mais purge imediato de `orphanedVisitIds` por ausência ambígua
+- `visits-view` e `dashboard-view` mostram estados mais conservadores sob sync instável
+- logs foram endurecidos para diferenciar pull parcial, cleanup pulado e ausência ambígua
+
+### M) Refatoração do legado de notas — status atualizado
+Status:
+- Slice 1 concluído: app não faz mais pull legado de notas por usuário
+- Slice 2 concluído: app não escreve mais notas de visita no path legado
+- Slice 3 concluído: script de auditoria/cleanup remoto disponível para execução controlada
+
+Direção operacional agora:
+1. rodar auditoria real (dry-run) no projeto Firebase
+2. validar volume e amostras do relatório
+3. executar cleanup seletivo com `--apply`
+4. manter monitoramento de sync após limpeza
+
+Próximo slice técnico opcional:
+- limpeza residual pequena de comentários/docs correntes (sem reescrever histórico)
+
+Recomendação mantida:
+- **não apagar todo o Firestore**; apagar apenas os registros legados de notas após auditoria
+
 ---
 
 ## Deploys / infraestrutura já aplicados
@@ -323,6 +388,7 @@ Resultados importantes:
 - `cleanupExpiredVisitsScheduler(southamerica-east1)` criado com sucesso
 - `deriveVisitExpirationFromNotes(southamerica-east1)` criado com sucesso
 - hosting publicado/atualizado em `https://visitamed-36570.web.app`
+- fixes recentes de sync confiável e listagem da visita já estão publicados em hosting
 
 ### APIs / serviços habilitados no projeto
 Durante o deploy do scheduler, o Firebase habilitou:
@@ -372,6 +438,13 @@ Se houver dúvida operacional, confirmar no Firebase Console se o índice de `in
   - `test` ✅
 
 ### Listagem da visita sem agrupamento por data
+- `typecheck` ✅
+- `lint` ✅
+- `test` ✅
+- `npm run build` ✅
+- deploy de hosting ✅
+
+### Confiabilidade do sync
 - `typecheck` ✅
 - `lint` ✅
 - `test` ✅
@@ -430,19 +503,42 @@ Se houver dúvida operacional, confirmar no Firebase Console se o índice de `in
 - `src/utils/group-notes-by-tag.test.ts`
 - `src/components/groups/tag-group.ts`
 
+### Sync / legado de notas
+- `src/services/sync/sync-service.ts`
+- `src/services/sync/sync-service.test.ts`
+- `functions/src/index.ts`
+- `src/services/db/notes-service.ts`
+- `src/views/visits-view.ts`
+- `src/views/dashboard-view.ts`
+
 ---
 
 ## Próximos ajustes / features prováveis
 
-### 1) Smoke tests manuais pós-deploy
+### 1) Próximo passo operacional do legado de notas
+Status atual:
+- slices 1–3 já implementados no código
+
+Checklist operacional recomendado:
+- rodar auditoria real (dry-run) do passivo legado em `/users/{uid}/notes`
+- revisar relatório e amostras
+- executar cleanup seletivo com `--apply`
+- monitorar logs/smoke tests após cleanup
+
+Decisão operacional mantida:
+- **não apagar todo o Firestore**
+- apagar apenas os registros legados auditados
+
+### 2) Smoke tests manuais pós-deploy
 Prioridade alta:
 - aceitar convite como `viewer` e `editor`
 - validar `leave visit`
 - validar exclusão de visita colaborativa pelo owner
 - validar expiração local ao apagar a última nota
 - validar convergência após cleanup backend
+- reproduzir o cenário de nota removida por convidado para confirmar que não ressuscita mais após o cleanup legado
 
-### 2) Observação inicial do scheduler e da trigger de expiração
+### 3) Observação inicial do scheduler e da trigger de expiração
 Vale inspecionar os logs das primeiras execuções do:
 - `cleanupExpiredVisitsScheduler`
 - `deriveVisitExpirationFromNotes`
@@ -453,7 +549,7 @@ Para confirmar:
 - se não houve erro inesperado de Eventarc/trigger/permite
 - se o volume de logs está razoável
 
-### 3) Refinamentos futuros da UX de tags
+### 4) Refinamentos futuros da UX de tags
 Possíveis refinamentos futuros:
 - auto-add no blur
 - auto-add ao salvar
@@ -462,19 +558,19 @@ Possíveis refinamentos futuros:
 - debounce/coalescing simples se o rebuild automático de sugestões ficar frequente demais
 - pequenos ajustes visuais nos chips/sugestões conforme uso real
 
-### 4) Próximo refinamento possível da listagem da visita
+### 5) Próximo refinamento possível da listagem da visita
 Possíveis próximos passos:
 - avaliar se faz sentido adicionar ação de exportar/compartilhar a visita inteira, já que o escopo por data saiu da UI principal
 - considerar mostrar data também em `note-item` se isso ajudar contexto sem poluir a tela
 
-### 5) Gestão visual de membros/convites
+### 6) Gestão visual de membros/convites
 Possíveis próximos slices:
 - listar convites ativos
 - revogar convite pela UI
 - listar membros
 - remover membro pela UI
 
-### 6) Ação de visita também em `visits-view`
+### 7) Ação de visita também em `visits-view`
 Pode ainda ser útil adicionar affordance de excluir/sair já na listagem de visitas.
 
 ---
@@ -509,6 +605,7 @@ Observações:
 ## Recomendação de retomada após reset
 
 1. Ler este arquivo.
-2. Rodar smoke test manual focado em colaboração + expiração.
-3. Ver logs do `cleanupExpiredVisitsScheduler` após as primeiras execuções.
-4. Se tudo estiver estável, priorizar refinamentos de UX, principalmente tags, listagem da visita e gestão de membros/convites.
+2. Considerar concluídos os slices 1–3 da refatoração do legado de notas.
+3. Rodar auditoria real dos registros remotos legados de notas antes de apagar qualquer coisa.
+4. Não fazer wipe completo do Firestore; executar cleanup seletivo somente após validação do dry-run.
+5. Em seguida, rodar smoke test manual focado em colaboração, remoção de notas compartilhadas, sync e expiração.
