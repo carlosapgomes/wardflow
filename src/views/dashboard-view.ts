@@ -61,6 +61,10 @@ export class DashboardView extends LitElement {
   @state() private isDeleteConfirmOpen = false;
   @state() private isVisitDeleteConfirmOpen = false;
   @state() private isLeaveVisitConfirmOpen = false;
+  @state() private isDeletingVisit = false;
+  @state() private isLeavingVisit = false;
+  @state() private visitDeleteError = '';
+  @state() private leaveVisitError = '';
   @state() private isInviteModalOpen = false;
   @state() private inviteRole: InviteRole = 'editor';
   @state() private inviteLink = '';
@@ -411,18 +415,31 @@ export class DashboardView extends LitElement {
   };
 
   private handleVisitDeleteClick = (): void => {
+    this.visitDeleteError = '';
     this.isVisitDeleteConfirmOpen = true;
   };
 
   private handleVisitDeleteCancel = (): void => {
+    if (this.isDeletingVisit) {
+      return;
+    }
+
+    this.visitDeleteError = '';
     this.isVisitDeleteConfirmOpen = false;
   };
 
   private handleVisitDeleteConfirm = async (): Promise<void> => {
+    if (this.isDeletingVisit) {
+      return;
+    }
+
     if (!this.visitId) {
       this.isVisitDeleteConfirmOpen = false;
       return;
     }
+
+    this.isDeletingVisit = true;
+    this.visitDeleteError = '';
 
     try {
       if (this.canDeletePrivateVisit()) {
@@ -430,39 +447,54 @@ export class DashboardView extends LitElement {
       } else if (this.canDeleteGroupVisitForAll()) {
         await deleteGroupVisitAsOwner(this.visitId);
       }
+      this.isVisitDeleteConfirmOpen = false;
       this.showTemporaryToast('Visita excluída');
       navigate('/dashboard');
     } catch (error) {
       console.error('Erro ao excluir visita:', error);
-      this.showTemporaryToast('Erro ao excluir visita');
+      this.visitDeleteError = 'Não foi possível concluir a ação. Tente novamente em alguns instantes.';
     } finally {
-      this.isVisitDeleteConfirmOpen = false;
+      this.isDeletingVisit = false;
     }
   };
 
   private handleLeaveVisitClick = (): void => {
+    this.leaveVisitError = '';
     this.isLeaveVisitConfirmOpen = true;
   };
 
   private handleLeaveVisitCancel = (): void => {
+    if (this.isLeavingVisit) {
+      return;
+    }
+
+    this.leaveVisitError = '';
     this.isLeaveVisitConfirmOpen = false;
   };
 
   private handleLeaveVisitConfirm = async (): Promise<void> => {
+    if (this.isLeavingVisit) {
+      return;
+    }
+
     if (!this.visitId) {
       this.isLeaveVisitConfirmOpen = false;
       return;
     }
 
+    this.isLeavingVisit = true;
+    this.leaveVisitError = '';
+
     try {
       await leaveVisit(this.visitId);
+      this.isLeaveVisitConfirmOpen = false;
       this.showTemporaryToast('Você saiu da visita');
       navigate('/dashboard');
     } catch (error) {
       console.error('Erro ao sair da visita:', error);
-      this.showTemporaryToast('Erro ao sair da visita');
+      this.leaveVisitError = 'Não foi possível concluir a ação. Tente novamente em alguns instantes.';
     } finally {
-      this.isLeaveVisitConfirmOpen = false;
+      this.isLeavingVisit = false;
     }
   };
 
@@ -775,6 +807,7 @@ export class DashboardView extends LitElement {
     if (!this.isVisitDeleteConfirmOpen) return null;
 
     const isGroupDelete = this.canDeleteGroupVisitForAll();
+    const isProcessing = this.isDeletingVisit;
     const title = isGroupDelete ? 'Excluir visita para todos?' : 'Excluir visita?';
     const body = isGroupDelete
       ? 'Esta visita colaborativa será removida para todos os membros.'
@@ -789,12 +822,27 @@ export class DashboardView extends LitElement {
             <div class="modal-body p-4">
               <h3 class="h6 mb-2">${title}</h3>
               <p class="text-secondary mb-3">${body}</p>
+              ${this.visitDeleteError
+                ? html`<div class="alert alert-danger py-2 px-3 small" role="alert">${this.visitDeleteError}</div>`
+                : ''}
               <div class="d-grid gap-2 d-sm-flex justify-content-end">
-                <button type="button" class="btn btn-outline-secondary" @click=${this.handleVisitDeleteCancel}>
+                <button
+                  type="button"
+                  class="btn btn-outline-secondary"
+                  ?disabled=${isProcessing}
+                  @click=${this.handleVisitDeleteCancel}
+                >
                   Cancelar
                 </button>
-                <button type="button" class="btn btn-danger" @click=${this.handleVisitDeleteConfirm}>
-                  ${actionLabel}
+                <button
+                  type="button"
+                  class="btn btn-danger"
+                  ?disabled=${isProcessing}
+                  @click=${this.handleVisitDeleteConfirm}
+                >
+                  ${isProcessing
+                    ? html`<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Excluindo...`
+                    : actionLabel}
                 </button>
               </div>
             </div>
@@ -807,6 +855,8 @@ export class DashboardView extends LitElement {
   private renderLeaveVisitConfirm() {
     if (!this.isLeaveVisitConfirmOpen) return null;
 
+    const isProcessing = this.isLeavingVisit;
+
     return html`
       <div class="modal-backdrop fade show"></div>
       <div class="modal d-block" tabindex="-1" @click=${this.handleLeaveVisitCancel}>
@@ -815,12 +865,27 @@ export class DashboardView extends LitElement {
             <div class="modal-body p-4">
               <h3 class="h6 mb-2">Sair da visita?</h3>
               <p class="text-secondary mb-3">Você perderá acesso a esta visita.</p>
+              ${this.leaveVisitError
+                ? html`<div class="alert alert-danger py-2 px-3 small" role="alert">${this.leaveVisitError}</div>`
+                : ''}
               <div class="d-grid gap-2 d-sm-flex justify-content-end">
-                <button type="button" class="btn btn-outline-secondary" @click=${this.handleLeaveVisitCancel}>
+                <button
+                  type="button"
+                  class="btn btn-outline-secondary"
+                  ?disabled=${isProcessing}
+                  @click=${this.handleLeaveVisitCancel}
+                >
                   Cancelar
                 </button>
-                <button type="button" class="btn btn-danger" @click=${this.handleLeaveVisitConfirm}>
-                  Sair da visita
+                <button
+                  type="button"
+                  class="btn btn-danger"
+                  ?disabled=${isProcessing}
+                  @click=${this.handleLeaveVisitConfirm}
+                >
+                  ${isProcessing
+                    ? html`<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Saindo...`
+                    : 'Sair da visita'}
                 </button>
               </div>
             </div>

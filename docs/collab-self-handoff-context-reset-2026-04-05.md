@@ -144,6 +144,20 @@ Estado atual:
   - `Compartilhada`
 - `visit.name` passa a representar apenas o nome semântico da visita
 
+### 11) UX de ações lentas da visita
+Estado atual:
+- `dashboard-view` agora mostra estado de processamento contextual nos modais de:
+  - excluir visita
+  - sair da visita
+- durante a operação:
+  - botão principal mostra spinner + texto (`Excluindo...`, `Saindo...`)
+  - botões relevantes ficam desabilitados
+  - duplo clique/reentrada é evitado
+- em caso de erro:
+  - o modal permanece aberto
+  - erro inline é exibido
+  - o usuário pode tentar novamente ou cancelar conscientemente
+
 ---
 
 ## Commits relevantes mais recentes
@@ -173,6 +187,10 @@ Estado atual:
 - Slice 1 local: novas visitas deixam de persistir data/mode no `name`
 - Slice 2 local: nomes legados são normalizados ao compartilhar (`ensureVisitIsGroup`)
 - Slice 3 local: `visits-view` exibe badge de modo (`Privada` / `Compartilhada`)
+
+### UX recente de ações de visita
+- `dashboard-view` exibe spinner/estado de processamento em excluir visita e sair da visita
+- em caso de erro, o modal permanece aberto com mensagem inline e affordance de retry
 
 ### Documentação recente
 - `e1b1c94` docs(handoff): update visit note grouping behavior
@@ -549,6 +567,9 @@ Prioridade alta:
 - compartilhar visita antiga com nome legado e confirmar normalização do nome
 - reproduzir o bug original de nota removida por convidado para confirmar que não ressuscita mais
 - validar edição/save em visita compartilhada após as mudanças recentes
+- validar UX dos modais de excluir/sair visita:
+  - spinner durante processamento
+  - modal aberto com erro inline em caso de falha
 
 ### 2) Observação inicial do scheduler e da trigger de expiração
 Prioridade alta:
