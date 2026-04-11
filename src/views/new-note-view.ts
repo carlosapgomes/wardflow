@@ -283,6 +283,15 @@ export class NewNoteView extends LitElement {
     }
   }
 
+  private focusTagsInput = async (): Promise<void> => {
+    await this.updateComplete;
+    this.querySelector<HTMLInputElement>('#tags')?.focus();
+  };
+
+  private handleTagSuggestionPointerDown = (event: MouseEvent): void => {
+    event.preventDefault();
+  };
+
   private handleAddTag = () => {
     const newTags = this.parseTagsFromInput(this.tagsInput);
     const combined = [...new Set([...this.tags, ...newTags])];
@@ -306,6 +315,7 @@ export class NewNoteView extends LitElement {
     this.tags = nextState.tags;
     this.tagsInput = nextState.tagsInput;
     void this.refreshTagSuggestions();
+    void this.focusTagsInput();
   };
 
   private handleRemoveTag = async (tagToRemove: string) => {
@@ -617,6 +627,7 @@ export class NewNoteView extends LitElement {
                                 <button
                                   type="button"
                                   class="btn btn-sm btn-outline-primary rounded-pill py-2 px-3"
+                                  @mousedown=${this.handleTagSuggestionPointerDown}
                                   @click=${() => {
                                     this.handleApplyTagSuggestion(tag);
                                   }}
