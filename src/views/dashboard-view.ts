@@ -38,6 +38,7 @@ import '../components/feedback/sync-status-bar';
 /** Tipo de escopo selecionado */
 type SelectedScope =
   | { type: 'tag'; tag: string; notes: Note[] }
+  | { type: 'visit'; notes: Note[] }
   | null;
 
 @customElement('dashboard-view')
@@ -211,7 +212,7 @@ export class DashboardView extends LitElement {
     } else if (actionId === 'share' && this.selectedScope) {
       await this.handleShareMessage();
       this.isActionSheetOpen = false;
-    } else if (actionId === 'delete' && this.selectedScope) {
+    } else if (actionId === 'delete' && this.selectedScope?.type === 'tag') {
       this.isActionSheetOpen = false;
       this.isDeleteConfirmOpen = true;
     }
@@ -220,7 +221,24 @@ export class DashboardView extends LitElement {
   private buildExportScope(): ExportScope | null {
     if (!this.selectedScope) return null;
 
-    return { type: 'tag', tag: this.selectedScope.tag, notes: this.selectedScope.notes };
+    if (this.selectedScope.type === 'tag') {
+      return { type: 'tag', tag: this.selectedScope.tag, notes: this.selectedScope.notes };
+    }
+
+    const groupedTags = groupNotesByTag(this.selectedScope.notes);
+
+    if (groupedTags.length === 0) {
+      return null;
+    }
+
+    return {
+      type: 'date',
+      date: this.currentVisit?.date ?? '',
+      tags: groupedTags.map((group) => ({
+        tag: group.tag,
+        notes: group.notes,
+      })),
+    };
   }
 
   private async handleCopyMessage(): Promise<void> {
@@ -282,7 +300,7 @@ export class DashboardView extends LitElement {
   };
 
   private getNoteIdsToDelete(): string[] {
-    if (!this.selectedScope) return [];
+    if (!this.selectedScope || this.selectedScope.type !== 'tag') return [];
     return this.selectedScope.notes.map((note) => note.id);
   }
 
@@ -347,58 +365,45 @@ export class DashboardView extends LitElement {
     return this.currentVisit?.mode === 'group' ? 'text-bg-primary' : 'text-bg-secondary';
   }
 
-  private formatDateForDisplay(date: string): string {
-    const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!match) return date;
-
-    const [, year, month, day] = match;
-    return `${day}-${month}-${year}`;
+  private formatDateTimeForDisplay(date: Date): string {
+    return date.toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   }
 
-  private buildWholeVisitExportScope(): ExportScope | null {
+  private getVisitLastUpdatedLabel(): string {
+    if (!this.currentVisit) {
+      return '';
+    }
+
+    const lastUpdate = this.currentVisit.updatedAt ?? this.currentVisit.createdAt;
+    return `Atualizada em ${this.formatDateTimeForDisplay(lastUpdate)}`;
+  }
+
+  private getActionSheetActions(): DashboardAction[] {
+    if (this.selectedScope?.type === 'visit') {
+      return getDashboardGroupActions(false);
+    }
+
+    return this.actions;
+  }
+
+  private handleWholeVisitMessageClick = (): void => {
     if (!this.canExportWholeVisitMessage()) {
-      return null;
-    }
-
-    const groupedTags = groupNotesByTag(this.notes);
-
-    if (groupedTags.length === 0) {
-      return null;
-    }
-
-    return {
-      type: 'date',
-      date: this.currentVisit?.date ?? '',
-      tags: groupedTags.map((group) => ({
-        tag: group.tag,
-        notes: group.notes,
-      })),
-    };
-  }
-
-  private handleShareWholeVisitMessage = async (): Promise<void> => {
-    const scope = this.buildWholeVisitExportScope();
-    if (!scope) {
       this.showTemporaryToast('Sem notas para exportar');
       return;
     }
 
-    const message = generateMessage(scope);
-    const canShare = 'share' in navigator && typeof navigator.share === 'function';
-
-    if (canShare) {
-      try {
-        await navigator.share({ text: message });
-        return;
-      } catch {
-        // fallback para copiar
-      }
-    }
-
-    const success = await copyToClipboard(message);
-    if (success) {
-      this.showTemporaryToast('Mensagem copiada');
-    }
+    this.selectedScope = {
+      type: 'visit',
+      notes: this.notes,
+    };
+    this.selectedTitle = 'Visita inteira';
+    this.isActionSheetOpen = true;
   };
 
   private handleInvitePeopleClick = (): void => {
@@ -725,14 +730,14 @@ export class DashboardView extends LitElement {
                         <h2 class="h5 mb-0">${this.currentVisit.name}</h2>
                         <span class="badge ${this.getVisitModeBadgeClass()}">${this.getVisitModeLabel()}</span>
                       </div>
-                      <div class="small text-secondary mt-1">${this.formatDateForDisplay(this.currentVisit.date)}</div>
+                      <div class="small text-secondary mt-1">${this.getVisitLastUpdatedLabel()}</div>
                     </div>
 
                     <button
                       type="button"
                       class="btn btn-primary"
                       ?disabled=${!this.canExportWholeVisitMessage()}
-                      @click=${this.handleShareWholeVisitMessage}
+                      @click=${this.handleWholeVisitMessageClick}
                     >
                       Gerar mensagem da visita
                     </button>
@@ -858,7 +863,7 @@ export class DashboardView extends LitElement {
       <action-sheet
         .visible=${this.isActionSheetOpen}
         .title=${this.selectedTitle}
-        .actions=${this.actions}
+        .actions=${this.getActionSheetActions()}
         @action-selected=${this.handleActionSelected}
         @sheet-closed=${this.handleSheetClosed}
       ></action-sheet>
