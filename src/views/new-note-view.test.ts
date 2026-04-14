@@ -74,7 +74,7 @@ describe('new-note-view', () => {
       tagsInput: string;
       updateComplete: Promise<boolean>;
       querySelector: (selector: string) => { focus: () => void } | null;
-      handleApplyTagSuggestion: (suggestedTag: string) => void;
+      handleApplyTagSuggestion: (suggestedTag: string) => Promise<void>;
     };
 
     view.tags = [];
@@ -88,9 +88,7 @@ describe('new-note-view', () => {
       return null;
     });
 
-    view.handleApplyTagSuggestion('PNEUMONIA');
-    await Promise.resolve();
-    await Promise.resolve();
+    await view.handleApplyTagSuggestion('PNEUMONIA');
 
     expect(view.tags).toEqual(['UTI', 'PNEUMONIA']);
     expect(view.tagsInput).toBe('');

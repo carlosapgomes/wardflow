@@ -4,6 +4,7 @@
  */
 
 import { LitElement, html } from 'lit';
+import { repeat } from 'lit/directives/repeat.js';
 import { customElement, state } from 'lit/decorators.js';
 import { navigate, getCurrentRoute } from '@/router/router';
 import {
@@ -288,7 +289,7 @@ export class NewNoteView extends LitElement {
     this.querySelector<HTMLInputElement>('#tags')?.focus();
   };
 
-  private handleTagSuggestionPointerDown = (event: MouseEvent): void => {
+  private handleTagSuggestionPointerDown = (event: PointerEvent): void => {
     event.preventDefault();
   };
 
@@ -300,7 +301,7 @@ export class NewNoteView extends LitElement {
     void this.refreshTagSuggestions();
   };
 
-  private handleApplyTagSuggestion = (suggestedTag: string) => {
+  private handleApplyTagSuggestion = async (suggestedTag: string): Promise<void> => {
     if (this.tags.length >= NOTE_CONSTANTS.MAX_TAGS_PER_NOTE) {
       return;
     }
@@ -314,8 +315,9 @@ export class NewNoteView extends LitElement {
 
     this.tags = nextState.tags;
     this.tagsInput = nextState.tagsInput;
-    void this.refreshTagSuggestions();
-    void this.focusTagsInput();
+
+    await this.refreshTagSuggestions();
+    await this.focusTagsInput();
   };
 
   private handleRemoveTag = async (tagToRemove: string) => {
@@ -623,18 +625,22 @@ export class NewNoteView extends LitElement {
                         ? html`<div class="small text-secondary">Carregando sugestões...</div>`
                         : html`
                             <div class="d-flex flex-wrap gap-2">
-                              ${this.tagSuggestions.map((tag) => html`
-                                <button
-                                  type="button"
-                                  class="btn btn-sm btn-outline-primary rounded-pill py-2 px-3"
-                                  @mousedown=${this.handleTagSuggestionPointerDown}
-                                  @click=${() => {
-                                    this.handleApplyTagSuggestion(tag);
-                                  }}
-                                >
-                                  ${tag}
-                                </button>
-                              `)}
+                              ${repeat(
+                                this.tagSuggestions,
+                                (tag) => tag,
+                                (tag) => html`
+                                  <button
+                                    type="button"
+                                    class="btn btn-sm btn-outline-primary rounded-pill py-2 px-3"
+                                    @pointerdown=${this.handleTagSuggestionPointerDown}
+                                    @click=${() => {
+                                      void this.handleApplyTagSuggestion(tag);
+                                    }}
+                                  >
+                                    ${tag}
+                                  </button>
+                                `
+                              )}
                             </div>
                           `}
                     </div>
