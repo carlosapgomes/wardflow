@@ -718,26 +718,22 @@ export class NewNoteView extends LitElement {
           </div>
         </div>
 
-        ${this.isEditMode
-          ? html`
-              <div class="card border-0 shadow-sm mb-4">
-                <div class="card-body py-3">
-                  <button
-                    type="button"
-                    class="btn btn-outline-danger w-100"
-                    @click=${this.handleDeleteRequest}
-                    ?disabled=${isBusy}
-                  >
-                    Excluir nota
-                  </button>
-                </div>
-              </div>
-            `
-          : null}
       </main>
 
       <div class="wf-action-bar">
         <div class="container-fluid wf-page-container d-grid gap-2 d-sm-flex justify-content-end">
+          ${this.isEditMode
+            ? html`
+                <button
+                  type="button"
+                  class="btn btn-outline-danger"
+                  @click=${this.handleDeleteRequest}
+                  ?disabled=${isBusy}
+                >
+                  Excluir nota
+                </button>
+              `
+            : null}
           <button type="button" class="btn btn-outline-secondary" @click=${this.handleCancel} ?disabled=${isBusy}>
             Cancelar
           </button>
